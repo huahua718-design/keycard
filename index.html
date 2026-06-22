@@ -37,7 +37,7 @@
             transition: 0.3s;
         }
         
-        /* iOS 專用：全螢幕瞬間閃白效果（替代震動的物理視覺感） */
+        /* iOS 專用：全螢幕瞬間閃白效果 */
         #flash-bang {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -76,31 +76,29 @@
                 <a-entity id="scaler-container" scale="5 5 5"
                           animation="property: scale; from: 5 5 5; to: 1 1 1; dur: 3000; easing: easeOutExpo; startEvents: startLocking">
                     
-                    <a-plane color="#39ff14" width="0.1" height="0.1" position="-0.4 0.5 0.02" material="shader: flat;"></a-plane>
-                    <a-plane color="#39ff14" width="0.1" height="0.1" position="0.4 0.5 0.02" material="shader: flat;"></a-plane>
-                    <a-plane color="#39ff14" width="0.1" height="0.1" position="-0.4 -0.5 0.02" material="shader: flat;"></a-plane>
-                    <a-plane color="#39ff14" width="0.1" height="0.1" position="0.4 -0.5 0.02" material="shader: flat;"></a-plane>
-                    <a-ring color="#39ff14" radius-inner="0.6" radius-outer="0.62" num-segments="4" position="0 0 0.01" rotation="0 0 45"
-                            material="shader: flat; transparent: true; opacity: 0.7;"
-                            animation="property: rotation; from: 0 0 45; to: 0 0 405; loop: true; dur: 6000; easing: linear">
-                    </a-ring>
-
-                    <a-ring color="#39ff14" radius-inner="0.45" radius-outer="0.48" position="0 0 0.02" opacity="0.9"
+                    <a-ring color="#39ff14" radius-inner="0.55" radius-outer="0.57" position="0 0 0.01" opacity="0.8"
                             material="shader: flat; transparent: true;"
-                            animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
+                            animation="property: rotation; to: 0 0 360; loop: true; dur: 4000; easing: linear">
                     </a-ring>
 
-                    <a-triangle color="#39ff14" vertex-a="0 0.2 0" vertex-b="-0.1 -0.1 0" vertex-c="0.1 -0.1 0" position="0 0 0.03" opacity="0.5"
-                                material="shader: flat; transparent: true;"
-                                animation="property: rotation; to: 0 0 -360; loop: true; dur: 1500; easing: linear">
-                    </a-triangle>
+                    <a-ring color="#39ff14" radius-inner="0.4" radius-outer="0.43" num-segments="4" position="0 0 0.02" rotation="0 0 45"
+                            material="shader: flat; transparent: true; opacity: 0.9;"
+                            animation="property: rotation; from: 0 0 45; to: 0 0 -315; loop: true; dur: 2000; easing: linear">
+                    </a-ring>
 
-                    <a-sphere position="0 0 0.05" radius="0.03" color="#39ff14"
-                              material="shader: flat; emissive: #39ff14;"
-                              animation="property: opacity; from: 0.3; to: 1; dir: alternate; loop: true; dur: 100">
-                    </a-sphere>
+                    <a-ring color="#39ff14" radius-inner="0.18" radius-outer="0.2" position="0 0 0.03"
+                            material="shader: flat; transparent: true;"
+                            animation="property: opacity; from: 0.2; to: 1; dir: alternate; loop: true; dur: 150">
+                    </a-ring>
 
-                    <a-light type="point" color="#39ff14" intensity="2" distance="1.5" position="0 0 0.2"></a-light>
+
+                    <a-cone color="#39ff14" radius-bottom="0.08" radius-top="0" height="0.25" 
+                            position="0 0 0.15" rotation="-90 0 0"
+                            material="shader: flat; emissive: #39ff14;"
+                            animation="property: position; from: 0 0 0.15; to: 0 0 0.22; dir: alternate; loop: true; dur: 800; easing: easeInOutSine">
+                    </a-cone>
+
+                    <a-light type="point" color="#39ff14" intensity="2" distance="1" position="0 0 0.05"></a-light>
 
                 </a-entity>
                 
@@ -151,11 +149,11 @@
                         // 顯示特效群組
                         lightGroup.setAttribute('visible', 'true');
                         
-                        // 【關鍵】重設容器初始大小，並手動觸發 3 秒進場動畫
+                        // 重設容器初始大小，並觸發 3 秒進場動畫
                         container.setAttribute('scale', '5 5 5');
                         container.emit('startLocking');
 
-                        // 1. 全螢幕瞬間閃白（營造抓取到訊號的衝擊感）
+                        // 全螢幕瞬間閃白
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -163,7 +161,7 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // 2. Android 設備啟動持續震動
+                        // Android 設備啟動持續震動
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -171,7 +169,6 @@
                         }
                     }
                 } else {
-                    // 只要其中一張卡片離開畫面
                     lightGroup.setAttribute('visible', 'false');
                     
                     if (!jokerFound && !xCardFound) {

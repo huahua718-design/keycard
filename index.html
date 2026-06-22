@@ -6,10 +6,9 @@
     <title>數位預言</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
-    <script src="https://unpkg.com/aframe-particle-system-component@1.1.3/dist/aframe-particle-system-component.min.js"></script>
 
     <style>
-        /* 移除預設的 MindAR 掃描框、角落 icon 與載入動畫 */
+        /* 強制移除 MindAR 的所有內建 UI，防止載入動畫卡死 */
         .mindar-ui-scanning, .mindar-ui-loading {
             display: none !important;
         }
@@ -38,14 +37,14 @@
             transition: 0.3s;
         }
         
-        /* iOS 專用：視覺震驚閃光燈效果 */
+        /* iOS 專用：全螢幕瞬間閃白效果（替代震動的物理視覺感） */
         #flash-bang {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
             background: white;
             opacity: 0;
             z-index: 9998;
-            pointer-events: none; /* 讓點擊穿透，不影響 AR 操作 */
+            pointer-events: none;
             transition: opacity 0.1s ease-out;
         }
     </style>
@@ -74,26 +73,31 @@
             
             <a-entity id="magic-light-group" visible="false">
                 
-                <a-sphere position="0 0 0.05" radius="0.04" color="#00f2fe"
+                <a-sphere position="0 0 0.05" radius="0.05" color="#00f2fe"
                           material="shader: flat; emissive: #00f2fe;"
-                          animation="property: scale; to: 1.6 1.6 1.6; dir: alternate; loop: true; dur: 400">
+                          animation="property: scale; to: 1.5 1.5 1.5; dir: alternate; loop: true; dur: 400">
                 </a-sphere>
 
-                <a-ring color="#00f2fe" radius-inner="0.45" radius-outer="0.5" position="0 0 0.02" opacity="0.8"
+                <a-ring color="#00f2fe" radius-inner="0.45" radius-outer="0.48" position="0 0 0.02" opacity="0.9"
                         material="shader: flat; transparent: true;"
                         animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
                 </a-ring>
                 
-                <a-ring color="#ff0055" radius-inner="0.3" radius-outer="0.33" position="0 0 0.03" opacity="0.6"
+                <a-ring color="#ff0055" radius-inner="0.32" radius-outer="0.34" position="0 0 0.03" opacity="0.8"
                         material="shader: flat; transparent: true;"
-                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 1500; easing: linear">
+                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 1800; easing: linear">
                 </a-ring>
 
-                <a-entity position="0 0 0.1" 
-                          particle-system="preset: dust; color: #00f2fe,#ff0055; particleCount: 100; size: 1.5; maxAge: 0.8; velocityValue: 0 0 -2; accelerationValue: 0 0 0;">
-                </a-entity>
+                <a-ring color="#00f2fe" radius-inner="0" radius-outer="0.2" position="0 0 0.01" opacity="0.6"
+                        material="shader: flat; transparent: true;"
+                        animation="property: scale; to: 2.5 2.5 2.5; loop: true; dur: 1200; easing: easeOutQuad; property: scale; to: 2.5 2.5 2.5; loop: true; dur: 1200; easing: linear">
+                </a-ring>
+                <a-ring color="#00f2fe" radius-inner="0" radius-outer="0.2" position="0 0 0.01" opacity="0.6"
+                        material="shader: flat; transparent: true;"
+                        animation="property: scale; to: 2.5 2.5 2.5; loop: true; dur: 1200; startEvents: click; delay: 600; easing: linear">
+                </a-ring>
 
-                <a-light type="point" color="#00f2fe" intensity="2" distance="1.5" position="0 0 0.3"></a-light>
+                <a-light type="point" color="#00f2fe" intensity="1.5" distance="1" position="0 0 0.2"></a-light>
             </a-entity>
 
         </a-entity>
@@ -111,7 +115,7 @@
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
             
-            // 安卓設備先行解鎖震動
+            // Android 先解鎖震動
             if(navigator.vibrate) navigator.vibrate(50); 
             
             const sceneEl = document.querySelector('a-scene');
@@ -134,36 +138,31 @@
 
             function checkConditions() {
                 if (jokerFound && xCardFound) {
-                    // 顯示華麗魔法陣與粒子
                     lightGroup.setAttribute('visible', 'true');
                     
-                    // 【iOS 與 Android 雙強硬優化機制】
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
 
-                        // 1. 視覺震撼：全螢幕瞬間閃白（解決 iOS 無法震動的平淡感）
+                        // 1. iOS + Android 共通視覺震撼：全螢幕瞬間閃白
+                        flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
-                            flashBang.style.transition = "opacity 0.6s ease-out";
+                            flashBang.style.transition = "opacity 0.5s ease-out";
                             flashBang.style.opacity = "0";
-                        }, 100);
+                        }, 50);
 
-                        // 2. 如果是 Android，啟動持續定時震動
+                        // 2. Android 持續震動
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
-                                navigator.vibrate(200); // 每 0.5 秒震動一次
+                                navigator.vibrate(200);
                             }, 500);
                         }
                     }
                 } else {
                     lightGroup.setAttribute('visible', 'false');
                     
-                    // 離開畫面時重設
                     if (!jokerFound && !xCardFound) {
                         hasTriggeredVisual = false;
-                        flashBang.style.transition = "opacity 0.1s ease-out";
-                        
-                        // 清除安卓持續震動
                         if(androidVibrateInterval) {
                             clearInterval(androidVibrateInterval);
                             androidVibrateInterval = null;

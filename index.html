@@ -3,16 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位預言：鬼牌的亮點</title>
+    <title>數位預言</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+    <script src="https://unpkg.com/aframe-particle-system-component@1.1.3/dist/aframe-particle-system-component.min.js"></script>
 
     <style>
-        /* 啟動遮罩：符合現代瀏覽器安全規範，點擊後同時開啟相機與解鎖震動 */
+        /* 移除預設的 MindAR 掃描框、角落 icon 與載入動畫 */
+        .mindar-ui-scanning, .mindar-ui-loading {
+            display: none !important;
+        }
+
         #overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(15, 15, 25, 0.9);
+            background: rgba(10, 10, 15, 0.95);
             z-index: 9999;
             display: flex;
             flex-direction: column;
@@ -20,37 +25,42 @@
             align-items: center;
             color: white;
             font-family: sans-serif;
-            text-align: center;
         }
         .start-btn {
             padding: 16px 40px;
             font-size: 20px;
             font-weight: bold;
-            background: linear-gradient(45deg, #00f2fe, #4facfe);
+            background: linear-gradient(45deg, #1f1c2c, #928dab);
             color: white;
-            border: none;
+            border: 1px solid #555;
             border-radius: 30px;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.4);
             transition: 0.3s;
-            letter-spacing: 1px;
         }
-        .start-btn:hover { 
-            transform: scale(1.05);
-            box-shadow: 0 6px 20px rgba(0, 242, 254, 0.6);
+        
+        /* iOS 專用：視覺震驚閃光燈效果 */
+        #flash-bang {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: white;
+            opacity: 0;
+            z-index: 9998;
+            pointer-events: none; /* 讓點擊穿透，不影響 AR 操作 */
+            transition: opacity 0.1s ease-out;
         }
     </style>
 </head>
 <body>
 
     <div id="overlay">
-        <h2 style="margin-bottom: 10px; letter-spacing: 2px;">數位透視眼</h2>
-        <p style="margin-bottom: 30px; color: #8892b0; font-size: 14px;">請點擊按鈕允許相機權限並開始儀式</p>
-        <button class="start-btn" onclick="startMagic()">開啟透視相機</button>
+        <h2 style="margin-bottom: 30px; letter-spacing: 2px;">數位透視眼</h2>
+        <button class="start-btn" onclick="startMagic()">開啟透視鏡頭</button>
     </div>
 
+    <div id="flash-bang"></div>
+
     <a-scene id="magic-scene" 
-             mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; autoStart: false; filterMinCF:0.001; filterBeta: 0.01;" 
+             mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF:0.001; filterBeta: 0.01;" 
              color-space="sRGB" 
              renderer="colorManagement: true, physicallyCorrectLights" 
              vr-mode-ui="enabled: false" 
@@ -63,17 +73,27 @@
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             
             <a-entity id="magic-light-group" visible="false">
+                
                 <a-sphere position="0 0 0.05" radius="0.04" color="#00f2fe"
                           material="shader: flat; emissive: #00f2fe;"
-                          animation="property: scale; to: 1.5 1.5 1.5; dir: alternate; loop: true; dur: 300">
-                </a-sphere>
-                
-                <a-sphere position="0 0 0.05" radius="0.12" color="#00f2fe" opacity="0.4"
-                          material="shader: flat; transparent: true;"
-                          animation="property: scale; to: 0.8 0.8 0.8; dir: alternate; loop: true; dur: 600">
+                          animation="property: scale; to: 1.6 1.6 1.6; dir: alternate; loop: true; dur: 400">
                 </a-sphere>
 
-                <a-light type="point" color="#00f2fe" intensity="2" distance="2" position="0 0 0.2"></a-light>
+                <a-ring color="#00f2fe" radius-inner="0.45" radius-outer="0.5" position="0 0 0.02" opacity="0.8"
+                        material="shader: flat; transparent: true;"
+                        animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
+                </a-ring>
+                
+                <a-ring color="#ff0055" radius-inner="0.3" radius-outer="0.33" position="0 0 0.03" opacity="0.6"
+                        material="shader: flat; transparent: true;"
+                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 1500; easing: linear">
+                </a-ring>
+
+                <a-entity position="0 0 0.1" 
+                          particle-system="preset: dust; color: #00f2fe,#ff0055; particleCount: 100; size: 1.5; maxAge: 0.8; velocityValue: 0 0 -2; accelerationValue: 0 0 0;">
+                </a-entity>
+
+                <a-light type="point" color="#00f2fe" intensity="2" distance="1.5" position="0 0 0.3"></a-light>
             </a-entity>
 
         </a-entity>
@@ -84,23 +104,20 @@
         let isVibrationAllowed = false;
         let jokerFound = false;
         let xCardFound = false;
-        let hasTriggeredVibration = false;
+        let hasTriggeredVisual = false;
+        let androidVibrateInterval = null;
 
-        // 點擊遮罩按鈕
         function startMagic() {
-            // 隱藏遮罩
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
             
-            // 觸發一次微弱震動，向瀏覽器宣告我們要使用震動功能
+            // 安卓設備先行解鎖震動
             if(navigator.vibrate) navigator.vibrate(50); 
             
-            // 手動啟動 MindAR 相機
             const sceneEl = document.querySelector('a-scene');
             const arSystem = sceneEl.systems["mindar-image-system"];
             arSystem.start(); 
 
-            // 初始化魔術監聽器
             initMagicLogic();
         }
 
@@ -108,49 +125,49 @@
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
             const lightGroup = document.getElementById('magic-light-group');
+            const flashBang = document.getElementById('flash-bang');
 
-            // 監聽：看見鬼牌正面
-            jokerTarget.addEventListener("targetFound", () => {
-                jokerFound = true;
-                checkConditions();
-            });
+            jokerTarget.addEventListener("targetFound", () => { jokerFound = true; checkConditions(); });
+            jokerTarget.addEventListener("targetLost", () => { jokerFound = false; checkConditions(); });
+            xTarget.addEventListener("targetFound", () => { xCardFound = true; checkConditions(); });
+            xTarget.addEventListener("targetLost", () => { xCardFound = false; checkConditions(); });
 
-            jokerTarget.addEventListener("targetLost", () => {
-                jokerFound = false;
-                checkConditions();
-            });
-
-            // 監聽：看見寫了 X 的牌背
-            xTarget.addEventListener("targetFound", () => {
-                xCardFound = true;
-                checkConditions();
-            });
-
-            xTarget.addEventListener("targetLost", () => {
-                xCardFound = false;
-                checkConditions();
-            });
-
-            // 核心判定：當滿足魔術條件時
             function checkConditions() {
-                // 條件：畫面「同時」看見鬼牌正面 與 帶記號的牌背
                 if (jokerFound && xCardFound) {
-                    // 1. 秀出牌背上的神祕亮點
+                    // 顯示華麗魔法陣與粒子
                     lightGroup.setAttribute('visible', 'true');
                     
-                    // 2. 手機震動：設計一個「登、登」兩下充滿預言感的震動
-                    // 如果這一次組合還沒震動過，就觸發震動
-                    if (isVibrationAllowed && navigator.vibrate && !hasTriggeredVibration) {
-                        navigator.vibrate([150, 100, 300]); 
-                        hasTriggeredVibration = true; // 避免在畫面上時重複瘋狂震動
+                    // 【iOS 與 Android 雙強硬優化機制】
+                    if (!hasTriggeredVisual) {
+                        hasTriggeredVisual = true;
+
+                        // 1. 視覺震撼：全螢幕瞬間閃白（解決 iOS 無法震動的平淡感）
+                        flashBang.style.opacity = "1";
+                        setTimeout(() => {
+                            flashBang.style.transition = "opacity 0.6s ease-out";
+                            flashBang.style.opacity = "0";
+                        }, 100);
+
+                        // 2. 如果是 Android，啟動持續定時震動
+                        if (isVibrationAllowed && navigator.vibrate) {
+                            androidVibrateInterval = setInterval(() => {
+                                navigator.vibrate(200); // 每 0.5 秒震動一次
+                            }, 500);
+                        }
                     }
                 } else {
-                    // 只要其中一個不見（例如鏡頭移開，或是觀眾把牌背翻開了）
                     lightGroup.setAttribute('visible', 'false');
                     
-                    // 當牌移開後，重設震動標記，下次重新組合出現時可以再度震動
+                    // 離開畫面時重設
                     if (!jokerFound && !xCardFound) {
-                        hasTriggeredVibration = false;
+                        hasTriggeredVisual = false;
+                        flashBang.style.transition = "opacity 0.1s ease-out";
+                        
+                        // 清除安卓持續震動
+                        if(androidVibrateInterval) {
+                            clearInterval(androidVibrateInterval);
+                            androidVibrateInterval = null;
+                        }
                     }
                 }
             }

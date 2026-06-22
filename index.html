@@ -6,6 +6,7 @@
     <title>數位預言</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <style>
         /* 強制移除 MindAR 的所有內建 UI，保持畫面純淨 */
@@ -16,7 +17,7 @@
         #overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 10, 15, 0.95);
+            background: rgba(10, 10, 15, 0.96);
             z-index: 9999;
             display: flex;
             flex-direction: column;
@@ -24,17 +25,36 @@
             align-items: center;
             color: white;
             font-family: sans-serif;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
         }
+
+        /* QR Code 容器樣式：白底黑字確保好掃，並帶有科技光暈 */
+        #qrcode-container {
+            background: white;
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            box-shadow: 0 0 25px rgba(57, 255, 20, 0.3);
+            display: inline-block;
+        }
+
         .start-btn {
             padding: 16px 40px;
-            font-size: 20px;
+            font-size: 18px;
             font-weight: bold;
-            background: linear-gradient(45deg, #1f1c2c, #928dab);
+            background: linear-gradient(45deg, #1f1c2c, #4facfe);
             color: white;
-            border: 1px solid #555;
+            border: 1px solid #00f2fe;
             border-radius: 30px;
             cursor: pointer;
             transition: 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
+        }
+        .start-btn:hover {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            transform: scale(1.05);
         }
         
         /* iOS 專用：全螢幕瞬間閃白效果 */
@@ -52,8 +72,14 @@
 <body>
 
     <div id="overlay">
-        <h2 style="margin-bottom: 30px; letter-spacing: 2px;">數位透視眼</h2>
-        <button class="start-btn" onclick="startMagic()">開啟透視鏡頭</button>
+        <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #00f2fe;">數位透視眼</h2>
+        <p style="margin-bottom: 25px; color: #888; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
+        
+        <div id="qrcode-container">
+            <div id="qrcode"></div>
+        </div>
+
+        <button class="start-btn" onclick="startMagic()">啟動數位透視眼</button>
     </div>
 
     <div id="flash-bang"></div>
@@ -70,7 +96,6 @@
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
-            
             <a-entity id="magic-light-group" visible="false">
                 
                 <a-entity id="scaler-container" scale="5 5 5"
@@ -81,8 +106,7 @@
                             animation="property: rotation; to: 0 0 -360; loop: true; dur: 5000; easing: linear">
                     </a-ring>
 
-                    <a-entity position="0 0 0.02"
-                              animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
+                    <a-entity position="0 0 0.02" animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
                         <a-plane color="#39ff14" width="0.6" height="0.02" position="0 0.3 0" material="shader: flat;"></a-plane>
                         <a-plane color="#39ff14" width="0.6" height="0.02" position="0 -0.3 0" material="shader: flat;"></a-plane>
                         <a-plane color="#39ff14" width="0.02" height="0.6" position="-0.3 0 0" material="shader: flat;"></a-plane>
@@ -94,24 +118,17 @@
                             animation="property: opacity; from: 0.3; to: 1; dir: alternate; loop: true; dur: 150">
                     </a-ring>
 
-
                     <a-entity position="0 0 0.15"
                               animation__rotate="property: rotation; to: 0 0 360; loop: true; dur: 1500; easing: linear"
                               animation__bounce="property: position; from: 0 0 0.15; to: 0 0 0.08; dir: alternate; loop: true; dur: 600; easing: easeInOutQuad">
-                        
                         <a-cylinder color="#39ff14" radius="0.02" height="0.15" position="0 0 0.075" rotation="90 0 0" material="shader: flat; emissive: #39ff14;"></a-cylinder>
-                        
                         <a-cone color="#39ff14" radius-bottom="0.07" radius-top="0" height="0.1" num-segments="4" position="0 0 0" rotation="-90 0 0" material="shader: flat; emissive: #39ff14;"></a-cone>
                     </a-entity>
 
                     <a-light type="point" color="#39ff14" intensity="2" distance="1" position="0 0 0.05"></a-light>
-
                 </a-entity>
-                
             </a-entity>
-
         </a-entity>
-
     </a-scene>
 
     <script>
@@ -121,6 +138,21 @@
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
 
+        // 【自動生成 QR Code 腳本】
+        // 網頁載入後，會自動抓取當前瀏覽器的網址並轉成 QR code 畫在畫面上
+        window.addEventListener('load', () => {
+            const currentUrl = window.location.href;
+            new QRCode(document.getElementById("qrcode"), {
+                text: currentUrl,
+                width: 180,
+                height: 180,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+        });
+
+        // 點擊「啟動數位透視眼」按鈕
         function startMagic() {
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
@@ -148,10 +180,8 @@
 
             function checkConditions() {
                 if (jokerFound && xCardFound) {
-                    
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
-
                         lightGroup.setAttribute('visible', 'true');
                         
                         container.setAttribute('scale', '5 5 5');
@@ -172,7 +202,6 @@
                     }
                 } else {
                     lightGroup.setAttribute('visible', 'false');
-                    
                     if (!jokerFound && !xCardFound) {
                         hasTriggeredVisual = false;
                         if(androidVibrateInterval) {

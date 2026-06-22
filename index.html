@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
 
     <style>
-        /* 強制移除 MindAR 的所有內建 UI，防止載入動畫卡死 */
+        /* 強制移除 MindAR 的所有內建 UI，保持畫面純淨 */
         .mindar-ui-scanning, .mindar-ui-loading {
             display: none !important;
         }
@@ -73,31 +73,37 @@
             
             <a-entity id="magic-light-group" visible="false">
                 
-                <a-sphere position="0 0 0.05" radius="0.05" color="#00f2fe"
-                          material="shader: flat; emissive: #00f2fe;"
-                          animation="property: scale; to: 1.5 1.5 1.5; dir: alternate; loop: true; dur: 400">
-                </a-sphere>
+                <a-entity id="scaler-container" scale="5 5 5"
+                          animation="property: scale; from: 5 5 5; to: 1 1 1; dur: 3000; easing: easeOutExpo; startEvents: startLocking">
+                    
+                    <a-plane color="#39ff14" width="0.1" height="0.1" position="-0.4 0.5 0.02" material="shader: flat;"></a-plane>
+                    <a-plane color="#39ff14" width="0.1" height="0.1" position="0.4 0.5 0.02" material="shader: flat;"></a-plane>
+                    <a-plane color="#39ff14" width="0.1" height="0.1" position="-0.4 -0.5 0.02" material="shader: flat;"></a-plane>
+                    <a-plane color="#39ff14" width="0.1" height="0.1" position="0.4 -0.5 0.02" material="shader: flat;"></a-plane>
+                    <a-ring color="#39ff14" radius-inner="0.6" radius-outer="0.62" num-segments="4" position="0 0 0.01" rotation="0 0 45"
+                            material="shader: flat; transparent: true; opacity: 0.7;"
+                            animation="property: rotation; from: 0 0 45; to: 0 0 405; loop: true; dur: 6000; easing: linear">
+                    </a-ring>
 
-                <a-ring color="#00f2fe" radius-inner="0.45" radius-outer="0.48" position="0 0 0.02" opacity="0.9"
-                        material="shader: flat; transparent: true;"
-                        animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
-                </a-ring>
+                    <a-ring color="#39ff14" radius-inner="0.45" radius-outer="0.48" position="0 0 0.02" opacity="0.9"
+                            material="shader: flat; transparent: true;"
+                            animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
+                    </a-ring>
+
+                    <a-triangle color="#39ff14" vertex-a="0 0.2 0" vertex-b="-0.1 -0.1 0" vertex-c="0.1 -0.1 0" position="0 0 0.03" opacity="0.5"
+                                material="shader: flat; transparent: true;"
+                                animation="property: rotation; to: 0 0 -360; loop: true; dur: 1500; easing: linear">
+                    </a-triangle>
+
+                    <a-sphere position="0 0 0.05" radius="0.03" color="#39ff14"
+                              material="shader: flat; emissive: #39ff14;"
+                              animation="property: opacity; from: 0.3; to: 1; dir: alternate; loop: true; dur: 100">
+                    </a-sphere>
+
+                    <a-light type="point" color="#39ff14" intensity="2" distance="1.5" position="0 0 0.2"></a-light>
+
+                </a-entity>
                 
-                <a-ring color="#ff0055" radius-inner="0.32" radius-outer="0.34" position="0 0 0.03" opacity="0.8"
-                        material="shader: flat; transparent: true;"
-                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 1800; easing: linear">
-                </a-ring>
-
-                <a-ring color="#00f2fe" radius-inner="0" radius-outer="0.2" position="0 0 0.01" opacity="0.6"
-                        material="shader: flat; transparent: true;"
-                        animation="property: scale; to: 2.5 2.5 2.5; loop: true; dur: 1200; easing: easeOutQuad; property: scale; to: 2.5 2.5 2.5; loop: true; dur: 1200; easing: linear">
-                </a-ring>
-                <a-ring color="#00f2fe" radius-inner="0" radius-outer="0.2" position="0 0 0.01" opacity="0.6"
-                        material="shader: flat; transparent: true;"
-                        animation="property: scale; to: 2.5 2.5 2.5; loop: true; dur: 1200; startEvents: click; delay: 600; easing: linear">
-                </a-ring>
-
-                <a-light type="point" color="#00f2fe" intensity="1.5" distance="1" position="0 0 0.2"></a-light>
             </a-entity>
 
         </a-entity>
@@ -115,7 +121,6 @@
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
             
-            // Android 先解鎖震動
             if(navigator.vibrate) navigator.vibrate(50); 
             
             const sceneEl = document.querySelector('a-scene');
@@ -129,6 +134,7 @@
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
             const lightGroup = document.getElementById('magic-light-group');
+            const container = document.getElementById('scaler-container');
             const flashBang = document.getElementById('flash-bang');
 
             jokerTarget.addEventListener("targetFound", () => { jokerFound = true; checkConditions(); });
@@ -138,12 +144,18 @@
 
             function checkConditions() {
                 if (jokerFound && xCardFound) {
-                    lightGroup.setAttribute('visible', 'true');
                     
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
 
-                        // 1. iOS + Android 共通視覺震撼：全螢幕瞬間閃白
+                        // 顯示特效群組
+                        lightGroup.setAttribute('visible', 'true');
+                        
+                        // 【關鍵】重設容器初始大小，並手動觸發 3 秒進場動畫
+                        container.setAttribute('scale', '5 5 5');
+                        container.emit('startLocking');
+
+                        // 1. 全螢幕瞬間閃白（營造抓取到訊號的衝擊感）
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -151,7 +163,7 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // 2. Android 持續震動
+                        // 2. Android 設備啟動持續震動
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -159,6 +171,7 @@
                         }
                     }
                 } else {
+                    // 只要其中一張卡片離開畫面
                     lightGroup.setAttribute('visible', 'false');
                     
                     if (!jokerFound && !xCardFound) {

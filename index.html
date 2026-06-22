@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位預言：鬼牌的詛咒</title>
+    <title>數位預言：鬼牌的亮點</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
-    <script src="https://unpkg.com/aframe-particle-system-component@1.1.3/dist/aframe-particle-system-component.min.js"></script>
 
     <style>
-        /* 蓋在畫面最上層的互動按鈕，用來解鎖手機震動權限 */
+        /* 啟動遮罩：符合現代瀏覽器安全規範，點擊後同時開啟相機與解鎖震動 */
         #overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(15, 15, 25, 0.9);
             z-index: 9999;
             display: flex;
             flex-direction: column;
@@ -21,30 +20,37 @@
             align-items: center;
             color: white;
             font-family: sans-serif;
+            text-align: center;
         }
         .start-btn {
-            padding: 15px 35px;
+            padding: 16px 40px;
             font-size: 20px;
-            background: #e74c3c;
+            font-weight: bold;
+            background: linear-gradient(45deg, #00f2fe, #4facfe);
             color: white;
             border: none;
-            border-radius: 25px;
+            border-radius: 30px;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.4);
             transition: 0.3s;
+            letter-spacing: 1px;
         }
-        .start-btn:hover { background: #c0392b; }
+        .start-btn:hover { 
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 242, 254, 0.6);
+        }
     </style>
 </head>
 <body>
 
     <div id="overlay">
-        <h2 style="margin-bottom: 20px; letter-spacing: 2px;">數位預言：鬼牌的詛咒</h2>
-        <p style="margin-bottom: 30px; color: #aaa;">請點擊下方按鈕啟動數位透視儀式</p>
-        <button class="start-btn" onclick="startMagic()">啟動數位透視</button>
+        <h2 style="margin-bottom: 10px; letter-spacing: 2px;">數位透視眼</h2>
+        <p style="margin-bottom: 30px; color: #8892b0; font-size: 14px;">請點擊按鈕允許相機權限並開始儀式</p>
+        <button class="start-btn" onclick="startMagic()">開啟透視相機</button>
     </div>
 
-    <a-scene mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; filterMinCF:0.001; filterBeta: 0.01;" 
+    <a-scene id="magic-scene" 
+             mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; autoStart: false; filterMinCF:0.001; filterBeta: 0.01;" 
              color-space="sRGB" 
              renderer="colorManagement: true, physicallyCorrectLights" 
              vr-mode-ui="enabled: false" 
@@ -52,16 +58,24 @@
         
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity id="joker-target" mindar-image-target="targetIndex: 0">
-            <a-entity position="0 0 0.1" particle-system="preset: dust; color: #00e5ff; particleCount: 150; size: 2; maxAge: 1; velocityValue: 0 1 0"></a-entity>
-            <a-ring color="#00e5ff" radius-inner="0.6" radius-outer="0.65" rotation="0 0 0" animation="property: rotation; to: 0 0 360; loop: true; dur: 4000; easing: linear"></a-ring>
-        </a-entity>
+        <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
-            <a-ring id="lock-ring" color="#ff0055" radius-inner="0.5" radius-outer="0.55" position="0 0 0.05" visible="false"
-                    animation="property: scale; to: 1.2 1.2 1.2; dir: alternate; loop: true; dur: 500; easing: easeInOutQuad">
-            </a-ring>
-            <a-entity id="success-particles" position="0 0 0.2" particle-system="preset: snow; color: #ffeb3b,#ff5722; particleCount: 0; size: 3;" visible="false"></a-entity>
+            
+            <a-entity id="magic-light-group" visible="false">
+                <a-sphere position="0 0 0.05" radius="0.04" color="#00f2fe"
+                          material="shader: flat; emissive: #00f2fe;"
+                          animation="property: scale; to: 1.5 1.5 1.5; dir: alternate; loop: true; dur: 300">
+                </a-sphere>
+                
+                <a-sphere position="0 0 0.05" radius="0.12" color="#00f2fe" opacity="0.4"
+                          material="shader: flat; transparent: true;"
+                          animation="property: scale; to: 0.8 0.8 0.8; dir: alternate; loop: true; dur: 600">
+                </a-sphere>
+
+                <a-light type="point" color="#00f2fe" intensity="2" distance="2" position="0 0 0.2"></a-light>
+            </a-entity>
+
         </a-entity>
 
     </a-scene>
@@ -70,99 +84,74 @@
         let isVibrationAllowed = false;
         let jokerFound = false;
         let xCardFound = false;
-        let heartBeatInterval = null;
-        let magicStep = 0; // 0: 初始, 1: 發現鬼牌, 2: 雙圖鎖定, 3: 翻開紅心A(結束)
+        let hasTriggeredVibration = false;
 
-        // 點擊遮罩按鈕，解鎖音效與震動
+        // 點擊遮罩按鈕
         function startMagic() {
+            // 隱藏遮罩
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
-            // 觸發一次極短的震動，確保瀏覽器權限過關
+            
+            // 觸發一次微弱震動，向瀏覽器宣告我們要使用震動功能
             if(navigator.vibrate) navigator.vibrate(50); 
-            initMagicListeners();
+            
+            // 手動啟動 MindAR 相機
+            const sceneEl = document.querySelector('a-scene');
+            const arSystem = sceneEl.systems["mindar-image-system"];
+            arSystem.start(); 
+
+            // 初始化魔術監聽器
+            initMagicLogic();
         }
 
-        function initMagicListeners() {
+        function initMagicLogic() {
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
-            const lockRing = document.getElementById('lock-ring');
-            const successParticles = document.getElementById('success-particles');
+            const lightGroup = document.getElementById('magic-light-group');
 
-            // --- 偵測鬼牌正面 ---
-            jokerTarget.addEventListener("targetFound", event => {
+            // 監聽：看見鬼牌正面
+            jokerTarget.addEventListener("targetFound", () => {
                 jokerFound = true;
-                if (magicStep === 0) {
-                    magicStep = 1;
-                    // 高潮 1：猛烈長震動 1 秒，代表感覺到鬼牌能量
-                    if(isVibrationAllowed && navigator.vibrate) {
-                        navigator.vibrate(1000); 
-                    }
-                }
-                checkCombo();
+                checkConditions();
             });
 
-            jokerTarget.addEventListener("targetLost", event => {
+            jokerTarget.addEventListener("targetLost", () => {
                 jokerFound = false;
-                stopHeartbeat();
+                checkConditions();
             });
 
-            // --- 偵測 X 牌背 ---
-            xTarget.addEventListener("targetFound", event => {
+            // 監聽：看見寫了 X 的牌背
+            xTarget.addEventListener("targetFound", () => {
                 xCardFound = true;
-                checkCombo();
+                checkConditions();
             });
 
-            xTarget.addEventListener("targetLost", event => {
+            xTarget.addEventListener("targetLost", () => {
                 xCardFound = false;
-                stopHeartbeat();
-                // 如果在步驟 2 弄丟 X 牌背，隱藏鎖定圈
-                if(magicStep === 2) lockRing.setAttribute('visible', 'false');
+                checkConditions();
             });
-            
-            // --- 核心組合技判定 ---
-            function checkCombo() {
-                // 如果兩張牌同時在畫面上，且已經觸發過鬼牌
-                if (jokerFound && xCardFound && magicStep === 1) {
-                    magicStep = 2;
-                    
-                    // 顯示牌背上的紅色鎖定特效
-                    lockRing.setAttribute('visible', 'true');
-                    
-                    // 高潮 2：開始規律的心跳短震動 (每 800 毫秒震動一次)
-                    startHeartbeat();
-                }
-                
-                // 【彩蛋/收尾機制】：如果進入鎖定狀態後，X牌背突然找不到了（因為觀眾把它翻開變成紅心A）
-                // 且此時鬼牌還在畫面上，代表觀眾正在翻牌！
-                if (jokerFound && !xCardFound && magicStep === 2) {
-                    magicStep = 3;
-                    stopHeartbeat();
-                    lockRing.setAttribute('visible', 'false');
-                    
-                    // 終結高潮：連續三次大震動，並施放紙花
-                    if(isVibrationAllowed && navigator.vibrate) {
-                        navigator.vibrate([400, 200, 400, 200, 800]);
-                    }
-                    // 讓紙花粒子噴發
-                    successParticles.setAttribute('visible', 'true');
-                    successParticles.setAttribute('particle-system', 'particleCount: 300');
-                    alert("🧙‍♂️ 魔術成功！預言實現！");
-                }
-            }
 
-            function startHeartbeat() {
-                if (heartBeatInterval) return;
-                heartBeatInterval = setInterval(() => {
-                    if (isVibrationAllowed && navigator.vibrate) {
-                        navigator.vibrate(120); // 心跳短震
+            // 核心判定：當滿足魔術條件時
+            function checkConditions() {
+                // 條件：畫面「同時」看見鬼牌正面 與 帶記號的牌背
+                if (jokerFound && xCardFound) {
+                    // 1. 秀出牌背上的神祕亮點
+                    lightGroup.setAttribute('visible', 'true');
+                    
+                    // 2. 手機震動：設計一個「登、登」兩下充滿預言感的震動
+                    // 如果這一次組合還沒震動過，就觸發震動
+                    if (isVibrationAllowed && navigator.vibrate && !hasTriggeredVibration) {
+                        navigator.vibrate([150, 100, 300]); 
+                        hasTriggeredVibration = true; // 避免在畫面上時重複瘋狂震動
                     }
-                }, 800);
-            }
-
-            function stopHeartbeat() {
-                if (heartBeatInterval) {
-                    clearInterval(heartBeatInterval);
-                    heartBeatInterval = null;
+                } else {
+                    // 只要其中一個不見（例如鏡頭移開，或是觀眾把牌背翻開了）
+                    lightGroup.setAttribute('visible', 'false');
+                    
+                    // 當牌移開後，重設震動標記，下次重新組合出現時可以再度震動
+                    if (!jokerFound && !xCardFound) {
+                        hasTriggeredVibration = false;
+                    }
                 }
             }
         }

@@ -81,10 +81,13 @@
                             animation="property: rotation; to: 0 0 -360; loop: true; dur: 5000; easing: linear">
                     </a-ring>
 
-                    <a-ring color="#39ff14" radius-inner="0.29" radius-outer="0.3" num-segments="4" position="0 0 0.02" rotation="0 0 45"
-                            material="shader: flat; transparent: true; opacity: 0.9;"
-                            animation="property: rotation; from: 0 0 45; to: 0 0 405; loop: true; dur: 3000; easing: linear">
-                    </a-ring>
+                    <a-entity position="0 0 0.02"
+                              animation="property: rotation; to: 0 0 360; loop: true; dur: 3000; easing: linear">
+                        <a-plane color="#39ff14" width="0.6" height="0.02" position="0 0.3 0" material="shader: flat;"></a-plane>
+                        <a-plane color="#39ff14" width="0.6" height="0.02" position="0 -0.3 0" material="shader: flat;"></a-plane>
+                        <a-plane color="#39ff14" width="0.02" height="0.6" position="-0.3 0 0" material="shader: flat;"></a-plane>
+                        <a-plane color="#39ff14" width="0.02" height="0.6" position="0.3 0 0" material="shader: flat;"></a-plane>
+                    </a-entity>
 
                     <a-ring color="#39ff14" radius-inner="0.28" radius-outer="0.3" position="0 0 0.03"
                             material="shader: flat; transparent: true;"
@@ -146,14 +149,11 @@
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
 
-                        // 顯示特效群組
                         lightGroup.setAttribute('visible', 'true');
                         
-                        // 重設容器初始大小，並觸發 3 秒進場動畫
                         container.setAttribute('scale', '5 5 5');
                         container.emit('startLocking');
 
-                        // 全螢幕瞬間閃白
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -161,7 +161,6 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // Android 設備啟動持續震動
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);

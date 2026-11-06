@@ -3,13 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位預言</title>
+    <title>數位透視眼 - 火柴人魔術</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
+    <script>
+      // 註冊 A-Frame 綠幕去除 Shader (Chroma Key)
+      AFRAME.registerShader('chromakey', {
+        schema: {
+          src: { type: 'map' },
+          color: { type: 'color', default: '#00FF00' },
+          similarity: { type: 'number', default: 0.4 },
+          smoothness: { type: 'number', default: 0.1 }
+        },
+        init: function (data) {
+          const videoTexture = new THREE.VideoTexture(data.src);
+          videoTexture.minFilter = THREE.LinearFilter;
+          videoTexture.magFilter = THREE.LinearFilter;
+          this.material = new THREE.ShaderMaterial({
+            uniforms: {
+              uTexture: { value: videoTexture },
+              uKeyColor: { value: new THREE.Color(data.color) },
+              uSimilarity: { value: data.similarity },
+              uSmoothness: { value: data.smoothness }
+            },
+            vertexShader: `
+              varying vec2 vUv;
+              void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: `
+              uniform sampler2D uTexture;
+              uniform vec3 uKeyColor;
+              uniform float uSimilarity;
+              uniform float uSmoothness;
+              varying vec2 vUv;
+
+              void main() {
+                vec4 videoColor = texture2D(uTexture, vUv);
+                float dist = distance(videoColor.rgb, uKeyColor);
+                float alpha = smoothstep(uSimilarity, uSimilarity + uSmoothness, dist);
+                gl_FragColor = vec4(videoColor.rgb, videoColor.a * alpha);
+              }
+            `,
+            transparent: true
+          });
+        },
+        update: function (data) {
+          if (this.material.uniforms) {
+            this.material.uniforms.uKeyColor.value.set(data.color);
+            this.material.uniforms.uSimilarity.value = data.similarity;
+            this.material.uniforms.uSmoothness.value = data.smoothness;
+          }
+        }
+      });
+    </script>
+
     <style>
-        /* 強制移除 MindAR 的所有內建 UI，保持畫面純淨 */
         .mindar-ui-scanning, .mindar-ui-loading {
             display: none !important;
         }
@@ -30,7 +83,6 @@
             box-sizing: border-box;
         }
 
-        /* QR Code 容器樣式：白底黑字確保好掃，並帶有科技光暈 */
         #qrcode-container {
             background: white;
             padding: 15px;
@@ -57,7 +109,6 @@
             transform: scale(1.05);
         }
         
-        /* iOS 專用：全螢幕瞬間閃白效果 */
         #flash-bang {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -91,15 +142,51 @@
              vr-mode-ui="enabled: false" 
              device-orientation-permission-ui="enabled: false">
         
+        <a-assets>
+            <!-- 預載綠幕火柴人動畫影片 -->
+            <video id="stickman-video" 
+                   src="./stickman.mp4" 
+                   preload="auto" 
+                   loop="true" 
+                   crossorigin="anonymous" 
+                   playsinline 
+                   webkit-playsinline 
+                   muted>
+            </video>
+        </a-assets>
+
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
+        <!-- 目標 0：鬼牌（Joker） -->
+        <a-entity id="joker-target" mindar-image-target="targetIndex: 0">
+            <!-- 召喚魔法陣 -->
+            <a-entity id="summon-circle" visible="false" position="0 0 0.01">
+                <a-ring color="#39ff14" radius-inner="0.35" radius-outer="0.38" opacity="0.8"
+                        material="shader: flat; transparent: true;"
+                        animation="property: rotation; to: 0 0 360; loop: true; dur: 4000; easing: linear">
+                </a-ring>
+                <a-ring color="#00f2fe" radius-inner="0.22" radius-outer="0.24" opacity="0.6"
+                        material="shader: flat; transparent: true;"
+                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 6000; easing: linear">
+                </a-ring>
+            </a-entity>
 
+            <!-- 火柴人動態實體：爬出後向下指 -->
+            <a-plane id="stickman-plane"
+                     material="shader: chromakey; src: #stickman-video; color: #00FF00; similarity: 0.38; smoothness: 0.08;"
+                     position="0 -0.15 0.12" 
+                     rotation="-20 0 0"
+                     width="0.9" 
+                     height="0.9"
+                     visible="false">
+            </a-plane>
+        </a-entity>
+
+        <!-- 目標 1：被指引的下張牌（X Card） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             <a-entity id="magic-light-group" visible="false">
-                
                 <a-entity id="scaler-container" scale="5 5 5"
-                          animation="property: scale; from: 5 5 5; to: 1 1 1; dur: 3000; easing: easeOutExpo; startEvents: startLocking">
+                          animation="property: scale; from: 5 5 5; to: 1 1 1; dur: 2500; easing: easeOutExpo; startEvents: startLocking">
                     
                     <a-ring color="#39ff14" radius-inner="0.41" radius-outer="0.424" position="0 0 0.01" opacity="0.8"
                             material="shader: flat; transparent: true;"
@@ -118,13 +205,6 @@
                             animation="property: opacity; from: 0.3; to: 1; dir: alternate; loop: true; dur: 150">
                     </a-ring>
 
-                    <a-entity position="0 0 0.15"
-                              animation__rotate="property: rotation; to: 0 0 360; loop: true; dur: 1500; easing: linear"
-                              animation__bounce="property: position; from: 0 0 0.15; to: 0 0 0.08; dir: alternate; loop: true; dur: 600; easing: easeInOutQuad">
-                        <a-cylinder color="#39ff14" radius="0.02" height="0.15" position="0 0 0.075" rotation="90 0 0" material="shader: flat; emissive: #39ff14;"></a-cylinder>
-                        <a-cone color="#39ff14" radius-bottom="0.07" radius-top="0" height="0.1" num-segments="4" position="0 0 0" rotation="-90 0 0" material="shader: flat; emissive: #39ff14;"></a-cone>
-                    </a-entity>
-
                     <a-light type="point" color="#39ff14" intensity="2" distance="1" position="0 0 0.05"></a-light>
                 </a-entity>
             </a-entity>
@@ -138,8 +218,7 @@
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
 
-        // 【自動生成 QR Code 腳本】
-        // 網頁載入後，會自動抓取當前瀏覽器的網址並轉成 QR code 畫在畫面上
+        // QR Code 自動生成
         window.addEventListener('load', () => {
             const currentUrl = window.location.href;
             new QRCode(document.getElementById("qrcode"), {
@@ -152,13 +231,21 @@
             });
         });
 
-        // 點擊「啟動數位透視眼」按鈕
         function startMagic() {
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
             
             if(navigator.vibrate) navigator.vibrate(50); 
             
+            // 解鎖行動裝置影音播放限制
+            const stickmanVideo = document.getElementById('stickman-video');
+            stickmanVideo.play().then(() => {
+                stickmanVideo.pause();
+                stickmanVideo.currentTime = 0;
+            }).catch(err => {
+                console.log("Video warm-up muted play triggered:", err);
+            });
+
             const sceneEl = document.querySelector('a-scene');
             const arSystem = sceneEl.systems["mindar-image-system"];
             arSystem.start(); 
@@ -172,6 +259,9 @@
             const lightGroup = document.getElementById('magic-light-group');
             const container = document.getElementById('scaler-container');
             const flashBang = document.getElementById('flash-bang');
+            const summonCircle = document.getElementById('summon-circle');
+            const stickmanPlane = document.getElementById('stickman-plane');
+            const stickmanVideo = document.getElementById('stickman-video');
 
             jokerTarget.addEventListener("targetFound", () => { jokerFound = true; checkConditions(); });
             jokerTarget.addEventListener("targetLost", () => { jokerFound = false; checkConditions(); });
@@ -182,11 +272,19 @@
                 if (jokerFound && xCardFound) {
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
-                        lightGroup.setAttribute('visible', 'true');
                         
+                        // 1. 啟動鬼牌上的魔法陣與火柴人影片
+                        summonCircle.setAttribute('visible', 'true');
+                        stickmanPlane.setAttribute('visible', 'true');
+                        stickmanVideo.currentTime = 0;
+                        stickmanVideo.play();
+
+                        // 2. 啟動目標牌鎖定特效
+                        lightGroup.setAttribute('visible', 'true');
                         container.setAttribute('scale', '5 5 5');
                         container.emit('startLocking');
 
+                        // 3. 瞬間全螢幕閃光
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -194,6 +292,7 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
+                        // 4. 連續震動反饋
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -201,7 +300,14 @@
                         }
                     }
                 } else {
-                    lightGroup.setAttribute('visible', 'false');
+                    // 目標丟失處理
+                    if (!jokerFound || !xCardFound) {
+                        summonCircle.setAttribute('visible', 'false');
+                        stickmanPlane.setAttribute('visible', 'false');
+                        stickmanVideo.pause();
+                        lightGroup.setAttribute('visible', 'false');
+                    }
+
                     if (!jokerFound && !xCardFound) {
                         hasTriggeredVisual = false;
                         if(androidVibrateInterval) {

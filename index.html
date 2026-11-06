@@ -9,23 +9,24 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <script>
-      // 升級版 Chroma-Key Shader：採用綠色通道主導度演算法，徹底消除發白、淺綠邊框
-      AFRAME.registerShader('chromakey-pro', {
+      // 升級版高容錯綠幕去除 Shader (支援發光、淡綠、非標準 #00FF00 去背)
+      AFRAME.registerShader('chromakey', {
         schema: {
           src: { type: 'map' },
-          colorSensitivity: { type: 'number', default: 0.1 },  // 靈敏度 (0.05 ~ 0.2)
-          colorRange: { type: 'number', default: 0.15 }         // 邊緣平滑過渡
+          color: { type: 'color', default: '#00FF00' },
+          similarity: { type: 'number', default: 0.72 },
+          smoothness: { type: 'number', default: 0.15 }
         },
         init: function (data) {
           const videoTexture = new THREE.VideoTexture(data.src);
           videoTexture.minFilter = THREE.LinearFilter;
           videoTexture.magFilter = THREE.LinearFilter;
-          
           this.material = new THREE.ShaderMaterial({
             uniforms: {
               uTexture: { value: videoTexture },
-              uSensitivity: { value: data.colorSensitivity },
-              uRange: { value: data.colorRange }
+              uKeyColor: { value: new THREE.Color(data.color) },
+              uSimilarity: { value: data.similarity },
+              uSmoothness: { value: data.smoothness }
             },
             vertexShader: `
               varying vec2 vUv;
@@ -36,37 +37,46 @@
             `,
             fragmentShader: `
               uniform sampler2D uTexture;
-              uniform float uSensitivity;
-              uniform float uRange;
+              uniform vec3 uKeyColor;
+              uniform float uSimilarity;
+              uniform float uSmoothness;
               varying vec2 vUv;
 
+              // RGB 轉 YCbCr 色度空間，去背效果比 RGB 距離更乾淨
+              vec3 rgb2ycbcr(vec3 c) {
+                float y = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+                float cb = -0.168736 * c.r - 0.331264 * c.g + 0.5 * c.b;
+                float cr = 0.5 * c.r - 0.418688 * c.g - 0.081312 * c.b;
+                return vec3(y, cb, cr);
+              }
+
               void main() {
-                vec4 tex = texture2D(uTexture, vUv);
+                vec4 texColor = texture2D(uTexture, vUv);
+                vec3 keyYCbCr = rgb2ycbcr(uKeyColor);
+                vec3 texYCbCr = rgb2ycbcr(texColor.rgb);
+
+                // 計算色度差異 (忽略明暗度，專注於綠色相)
+                float chromaDist = distance(texYCbCr.yz, keyYCbCr.yz);
+
+                // 綠色佔比過高判定（捕捉淺黃綠、亮綠）
+                bool isGreenDominant = (texColor.g > texColor.r * 1.15) && (texColor.g > texColor.b * 1.15);
                 
-                // 判斷綠色主導度：綠色通道高於紅藍平均值
-                float maxRB = max(tex.r, tex.b);
-                float diff = tex.g - maxRB;
-                
-                // 動態 Alpha 計算 (綠色差距大於閾值直接切除)
-                float alpha = 1.0 - smoothstep(uSensitivity, uSensitivity + uRange, diff);
-                
-                // 如果完全透明直接丟棄像素，防止行動裝置深度快取白框
-                if (alpha < 0.05) {
-                  discard;
+                float alpha = smoothstep(uSimilarity - uSmoothness, uSimilarity, chromaDist);
+                if (isGreenDominant && chromaDist < uSimilarity * 1.2) {
+                    alpha = min(alpha, smoothstep(0.1, 0.4, 1.0 - texColor.g));
                 }
-                
-                gl_FragColor = vec4(tex.rgb, alpha);
+
+                gl_FragColor = vec4(texColor.rgb, alpha);
               }
             `,
-            transparent: true,
-            depthWrite: false, // 關鍵：防止行動裝置半透明層穿透出現白底
-            side: THREE.DoubleSide
+            transparent: true
           });
         },
         update: function (data) {
           if (this.material.uniforms) {
-            this.material.uniforms.uSensitivity.value = data.colorSensitivity;
-            this.material.uniforms.uRange.value = data.colorRange;
+            this.material.uniforms.uKeyColor.value.set(data.color);
+            this.material.uniforms.uSimilarity.value = data.similarity;
+            this.material.uniforms.uSmoothness.value = data.smoothness;
           }
         }
       });
@@ -114,10 +124,6 @@
             transition: 0.3s;
             box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
         }
-        .start-btn:hover {
-            background: linear-gradient(45deg, #4facfe, #00f2fe);
-            transform: scale(1.05);
-        }
         
         #flash-bang {
             position: fixed;
@@ -135,11 +141,9 @@
     <div id="overlay">
         <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #00f2fe;">數位透視眼</h2>
         <p style="margin-bottom: 25px; color: #888; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
-        
         <div id="qrcode-container">
             <div id="qrcode"></div>
         </div>
-
         <button class="start-btn" onclick="startMagic()">啟動數位透視眼</button>
     </div>
 
@@ -166,13 +170,13 @@
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- 目標 0：鬼牌 (只做感應觸發，上面不放任何覆蓋層) -->
+        <!-- 目標 0：鬼牌（純觸發條件） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆目標牌 (火柴人爬出並站在這張牌上，魔法陣已全數移除) -->
+        <!-- 目標 1：牌堆（火柴人在此處登場） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             <a-plane id="stickman-plane"
-                     material="shader: chromakey-pro; src: #stickman-video; colorSensitivity: 0.08; colorRange: 0.12;"
+                     material="shader: chromakey; src: #stickman-video; color: #00FF00; similarity: 0.72; smoothness: 0.15;"
                      position="0 0 0.05" 
                      rotation="0 0 0"
                      width="1.0" 
@@ -204,21 +208,16 @@
         function startMagic() {
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
-            
             if(navigator.vibrate) navigator.vibrate(50); 
             
             const stickmanVideo = document.getElementById('stickman-video');
             stickmanVideo.play().then(() => {
                 stickmanVideo.pause();
                 stickmanVideo.currentTime = 0;
-            }).catch(err => {
-                console.log("Video warm-up muted play triggered:", err);
-            });
+            }).catch(e => console.log(e));
 
             const sceneEl = document.querySelector('a-scene');
-            const arSystem = sceneEl.systems["mindar-image-system"];
-            arSystem.start(); 
-
+            sceneEl.systems["mindar-image-system"].start(); 
             initMagicLogic();
         }
 
@@ -239,20 +238,20 @@
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
                         
-                        // 啟動火柴人出現在目標牌上
+                        // 播放牌堆上的火柴人影片
                         stickmanPlane.setAttribute('visible', 'true');
                         stickmanVideo.currentTime = 0;
                         stickmanVideo.play();
 
-                        // 閃光
+                        // 閃白
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
-                            flashBang.style.transition = "opacity 0.5s ease-out";
+                            flashBang.style.transition = "opacity 0.4s ease-out";
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // 震動
+                        // 震動反饋
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -264,7 +263,6 @@
                         stickmanPlane.setAttribute('visible', 'false');
                         stickmanVideo.pause();
                     }
-
                     if (!jokerFound && !xCardFound) {
                         hasTriggeredVisual = false;
                         if(androidVibrateInterval) {

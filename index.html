@@ -2,25 +2,27 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位透視眼 - 火柴人魔術</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>數位透視眼</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <script>
-      // 升級版高容錯綠幕去除 Shader (支援發光、淡綠、非標準 #00FF00 去背)
+      // 專為 iOS / Android 設計的穩定版綠幕 Shader (避免 WebGL 編譯中斷)
       AFRAME.registerShader('chromakey', {
         schema: {
           src: { type: 'map' },
           color: { type: 'color', default: '#00FF00' },
-          similarity: { type: 'number', default: 0.72 },
-          smoothness: { type: 'number', default: 0.15 }
+          similarity: { type: 'number', default: 0.65 },
+          smoothness: { type: 'number', default: 0.1 }
         },
         init: function (data) {
-          const videoTexture = new THREE.VideoTexture(data.src);
+          const videoEl = typeof data.src === 'string' ? document.querySelector(data.src) : data.src;
+          const videoTexture = new THREE.VideoTexture(videoEl);
           videoTexture.minFilter = THREE.LinearFilter;
           videoTexture.magFilter = THREE.LinearFilter;
+
           this.material = new THREE.ShaderMaterial({
             uniforms: {
               uTexture: { value: videoTexture },
@@ -36,44 +38,33 @@
               }
             `,
             fragmentShader: `
+              precision mediump float;
               uniform sampler2D uTexture;
               uniform vec3 uKeyColor;
               uniform float uSimilarity;
               uniform float uSmoothness;
               varying vec2 vUv;
 
-              // RGB 轉 YCbCr 色度空間，去背效果比 RGB 距離更乾淨
-              vec3 rgb2ycbcr(vec3 c) {
-                float y = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
-                float cb = -0.168736 * c.r - 0.331264 * c.g + 0.5 * c.b;
-                float cr = 0.5 * c.r - 0.418688 * c.g - 0.081312 * c.b;
-                return vec3(y, cb, cr);
-              }
-
               void main() {
                 vec4 texColor = texture2D(uTexture, vUv);
-                vec3 keyYCbCr = rgb2ycbcr(uKeyColor);
-                vec3 texYCbCr = rgb2ycbcr(texColor.rgb);
-
-                // 計算色度差異 (忽略明暗度，專注於綠色相)
-                float chromaDist = distance(texYCbCr.yz, keyYCbCr.yz);
-
-                // 綠色佔比過高判定（捕捉淺黃綠、亮綠）
-                bool isGreenDominant = (texColor.g > texColor.r * 1.15) && (texColor.g > texColor.b * 1.15);
                 
-                float alpha = smoothstep(uSimilarity - uSmoothness, uSimilarity, chromaDist);
-                if (isGreenDominant && chromaDist < uSimilarity * 1.2) {
-                    alpha = min(alpha, smoothstep(0.1, 0.4, 1.0 - texColor.g));
+                // 綠色權重判定：捕捉發光綠與淡綠色
+                float greenDiff = texColor.g - max(texColor.r, texColor.b);
+                float dist = distance(texColor.rgb, uKeyColor);
+                
+                float alpha = smoothstep(uSimilarity - uSmoothness, uSimilarity, dist);
+                if (greenDiff > 0.15) {
+                  alpha = min(alpha, 1.0 - smoothstep(0.15, 0.35, greenDiff));
                 }
 
-                gl_FragColor = vec4(texColor.rgb, alpha);
+                gl_FragColor = vec4(texColor.rgb, texColor.a * alpha);
               }
             `,
             transparent: true
           });
         },
         update: function (data) {
-          if (this.material.uniforms) {
+          if (this.material && this.material.uniforms) {
             this.material.uniforms.uKeyColor.value.set(data.color);
             this.material.uniforms.uSimilarity.value = data.similarity;
             this.material.uniforms.uSmoothness.value = data.smoothness;
@@ -85,6 +76,15 @@
     <style>
         .mindar-ui-scanning, .mindar-ui-loading {
             display: none !important;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000; /* 底色改為黑色，避免任何白色漏光假象 */
         }
 
         #overlay {
@@ -124,15 +124,17 @@
             transition: 0.3s;
             box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
         }
-        
+
+        /* 預設 display: none，杜絕白畫面遮罩誤觸 */
         #flash-bang {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
             background: white;
             opacity: 0;
+            display: none;
             z-index: 9998;
             pointer-events: none;
-            transition: opacity 0.1s ease-out;
+            transition: opacity 0.3s ease-out;
         }
     </style>
 </head>
@@ -140,7 +142,7 @@
 
     <div id="overlay">
         <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #00f2fe;">數位透視眼</h2>
-        <p style="margin-bottom: 25px; color: #888; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
+        <p style="margin-bottom: 25px; color: #888; font-size: 14px;">請用手機掃描開啟相機進行透視</p>
         <div id="qrcode-container">
             <div id="qrcode"></div>
         </div>
@@ -152,7 +154,7 @@
     <a-scene id="magic-scene" 
              mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF:0.001; filterBeta: 0.01;" 
              color-space="sRGB" 
-             renderer="colorManagement: true, physicallyCorrectLights" 
+             renderer="colorManagement: true" 
              vr-mode-ui="enabled: false" 
              device-orientation-permission-ui="enabled: false">
         
@@ -170,13 +172,13 @@
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- 目標 0：鬼牌（純觸發條件） -->
+        <!-- 目標 0：鬼牌（觸發感應） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆（火柴人在此處登場） -->
+        <!-- 目標 1：牌堆（火柴人登場處） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             <a-plane id="stickman-plane"
-                     material="shader: chromakey; src: #stickman-video; color: #00FF00; similarity: 0.72; smoothness: 0.15;"
+                     material="shader: chromakey; src: #stickman-video; color: #00FF00; similarity: 0.65; smoothness: 0.1;"
                      position="0 0 0.05" 
                      rotation="0 0 0"
                      width="1.0" 
@@ -205,26 +207,39 @@
             });
         });
 
+        function triggerFlash() {
+            const flashBang = document.getElementById('flash-bang');
+            flashBang.style.display = "block";
+            flashBang.style.opacity = "1";
+            setTimeout(() => {
+                flashBang.style.opacity = "0";
+                setTimeout(() => {
+                    flashBang.style.display = "none";
+                }, 300);
+            }, 50);
+        }
+
         function startMagic() {
             document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
-            if(navigator.vibrate) navigator.vibrate(50); 
+            if (navigator.vibrate) navigator.vibrate(50); 
             
             const stickmanVideo = document.getElementById('stickman-video');
             stickmanVideo.play().then(() => {
                 stickmanVideo.pause();
                 stickmanVideo.currentTime = 0;
-            }).catch(e => console.log(e));
+            }).catch(e => console.log("Video auto-play unlock handled:", e));
 
             const sceneEl = document.querySelector('a-scene');
-            sceneEl.systems["mindar-image-system"].start(); 
+            const arSystem = sceneEl.systems["mindar-image-system"];
+            arSystem.start(); 
+
             initMagicLogic();
         }
 
         function initMagicLogic() {
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
-            const flashBang = document.getElementById('flash-bang');
             const stickmanPlane = document.getElementById('stickman-plane');
             const stickmanVideo = document.getElementById('stickman-video');
 
@@ -238,20 +253,12 @@
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
                         
-                        // 播放牌堆上的火柴人影片
                         stickmanPlane.setAttribute('visible', 'true');
                         stickmanVideo.currentTime = 0;
                         stickmanVideo.play();
 
-                        // 閃白
-                        flashBang.style.transition = "none";
-                        flashBang.style.opacity = "1";
-                        setTimeout(() => {
-                            flashBang.style.transition = "opacity 0.4s ease-out";
-                            flashBang.style.opacity = "0";
-                        }, 50);
+                        triggerFlash();
 
-                        // 震動反饋
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -265,7 +272,7 @@
                     }
                     if (!jokerFound && !xCardFound) {
                         hasTriggeredVisual = false;
-                        if(androidVibrateInterval) {
+                        if (androidVibrateInterval) {
                             clearInterval(androidVibrateInterval);
                             androidVibrateInterval = null;
                         }

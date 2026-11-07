@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位透視眼 - 火柴人魔術</title>
+    <title>數位透視眼 - 隨機輪播動畫</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <script>
-      // 註冊 A-Frame 綠幕去除 Shader (Chroma Key)
+      // 支援動態切換影片貼圖的綠幕 Shader
       AFRAME.registerShader('chromakey', {
         schema: {
           src: { type: 'map' },
@@ -18,12 +18,14 @@
           smoothness: { type: 'number', default: 0.1 }
         },
         init: function (data) {
-          const videoTexture = new THREE.VideoTexture(data.src);
-          videoTexture.minFilter = THREE.LinearFilter;
-          videoTexture.magFilter = THREE.LinearFilter;
+          const videoEl = typeof data.src === 'string' ? document.querySelector(data.src) : data.src;
+          this.videoTexture = new THREE.VideoTexture(videoEl);
+          this.videoTexture.minFilter = THREE.LinearFilter;
+          this.videoTexture.magFilter = THREE.LinearFilter;
+          
           this.material = new THREE.ShaderMaterial({
             uniforms: {
-              uTexture: { value: videoTexture },
+              uTexture: { value: this.videoTexture },
               uKeyColor: { value: new THREE.Color(data.color) },
               uSimilarity: { value: data.similarity },
               uSmoothness: { value: data.smoothness }
@@ -53,7 +55,15 @@
           });
         },
         update: function (data) {
-          if (this.material.uniforms) {
+          if (this.material && this.material.uniforms) {
+            const videoEl = typeof data.src === 'string' ? document.querySelector(data.src) : data.src;
+            if (this.videoTexture && this.videoTexture.image !== videoEl) {
+              this.videoTexture.dispose();
+              this.videoTexture = new THREE.VideoTexture(videoEl);
+              this.videoTexture.minFilter = THREE.LinearFilter;
+              this.videoTexture.magFilter = THREE.LinearFilter;
+              this.material.uniforms.uTexture.value = this.videoTexture;
+            }
             this.material.uniforms.uKeyColor.value.set(data.color);
             this.material.uniforms.uSimilarity.value = data.similarity;
             this.material.uniforms.uSmoothness.value = data.smoothness;
@@ -142,16 +152,11 @@
              vr-mode-ui="enabled: false" 
              device-orientation-permission-ui="enabled: false">
         
-        <a-assets>
-            <video id="stickman-video" 
-                   src="./stickman.mp4" 
-                   preload="auto" 
-                   loop="true" 
-                   crossorigin="anonymous" 
-                   playsinline 
-                   webkit-playsinline 
-                   muted>
-            </video>
+        <a-assets id="video-assets">
+            <!-- 在此處列出根目錄下的所有動畫影片 -->
+            <video id="vid-1" src="./stickman1.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
+            <video id="vid-2" src="./stickman2.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
+            <video id="vid-3" src="./stickman3.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -159,10 +164,10 @@
         <!-- 目標 0：鬼牌（純感應條件） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆（移除魔法陣，火柴人在此處登場） -->
+        <!-- 目標 1：牌堆（隨機火柴人播放位置） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             <a-plane id="stickman-plane"
-                     material="shader: chromakey; src: #stickman-video; color: #00FF00; similarity: 0.4; smoothness: 0.1;"
+                     material="shader: chromakey; src: #vid-1; color: #00FF00; similarity: 0.4; smoothness: 0.1;"
                      position="0 0 0.05" 
                      rotation="0 0 0"
                      width="1.0" 
@@ -179,6 +184,11 @@
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
 
+        // 動畫影片 ID 清單
+        const videoIdList = ['vid-1', 'vid-2', 'vid-3'];
+        let currentActiveVideo = null;
+        let lastPlayedIndex = -1;
+
         window.addEventListener('load', () => {
             const currentUrl = window.location.href;
             new QRCode(document.getElementById("qrcode"), {
@@ -191,34 +201,45 @@
             });
         });
 
-        // 核心修正：主動向 Safari 請求相機權限後再交付給 MindAR
+        // 隨機選取不與上次重複的影片
+        function getRandomVideo() {
+            let nextIndex = Math.floor(Math.random() * videoIdList.length);
+            if (videoIdList.length > 1) {
+                while (nextIndex === lastPlayedIndex) {
+                    nextIndex = Math.floor(Math.random() * videoIdList.length);
+                }
+            }
+            lastPlayedIndex = nextIndex;
+            return document.getElementById(videoIdList[nextIndex]);
+        }
+
         async function startMagic() {
             isVibrationAllowed = true;
             if (navigator.vibrate) navigator.vibrate(50); 
 
-            // 1. 喚醒影片播放權限
-            const stickmanVideo = document.getElementById('stickman-video');
-            stickmanVideo.play().then(() => {
-                stickmanVideo.pause();
-                stickmanVideo.currentTime = 0;
-            }).catch(err => {
-                console.log("Video warm-up muted play triggered:", err);
+            // 一次性喚醒所有輪播影片，突破 iOS 自動播放封鎖
+            videoIdList.forEach(id => {
+                const vid = document.getElementById(id);
+                if (vid) {
+                    vid.play().then(() => {
+                        vid.pause();
+                        vid.currentTime = 0;
+                    }).catch(err => console.log("Video warm-up error:", id, err));
+                }
             });
 
-            // 2. iOS Safari 專用：手勢事件內直接喚起 getUserMedia
+            // iOS Safari 鏡頭預檢
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     const tempStream = await navigator.mediaDevices.getUserMedia({
                         video: { facingMode: "environment" }
                     });
-                    // 釋放暫存串流，讓 MindAR 接管後置鏡頭
                     tempStream.getTracks().forEach(track => track.stop());
                 }
             } catch (err) {
-                console.warn("Camera pre-flight permission check failed or denied:", err);
+                console.warn("Camera check:", err);
             }
 
-            // 3. 隱藏覆蓋層並啟動 MindAR
             document.getElementById('overlay').style.display = 'none';
 
             const sceneEl = document.querySelector('a-scene');
@@ -233,7 +254,6 @@
             const xTarget = document.getElementById('x-target');
             const flashBang = document.getElementById('flash-bang');
             const stickmanPlane = document.getElementById('stickman-plane');
-            const stickmanVideo = document.getElementById('stickman-video');
 
             jokerTarget.addEventListener("targetFound", () => { jokerFound = true; checkConditions(); });
             jokerTarget.addEventListener("targetLost", () => { jokerFound = false; checkConditions(); });
@@ -245,12 +265,16 @@
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
                         
-                        // 啟動牌堆上的火柴人
-                        stickmanPlane.setAttribute('visible', 'true');
-                        stickmanVideo.currentTime = 0;
-                        stickmanVideo.play();
+                        // 1. 隨機選取影片並動態換上貼圖
+                        currentActiveVideo = getRandomVideo();
+                        stickmanPlane.setAttribute('material', 'src', '#' + currentActiveVideo.id);
 
-                        // 閃白
+                        // 2. 顯示並播放選中的影片
+                        stickmanPlane.setAttribute('visible', 'true');
+                        currentActiveVideo.currentTime = 0;
+                        currentActiveVideo.play();
+
+                        // 3. 瞬間閃白
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -258,7 +282,7 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // 連續震動反饋
+                        // 4. 震動
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -268,7 +292,9 @@
                 } else {
                     if (!jokerFound || !xCardFound) {
                         stickmanPlane.setAttribute('visible', 'false');
-                        stickmanVideo.pause();
+                        if (currentActiveVideo) {
+                            currentActiveVideo.pause();
+                        }
                     }
 
                     if (!jokerFound && !xCardFound) {

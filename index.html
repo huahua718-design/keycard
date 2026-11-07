@@ -9,13 +9,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <script>
-      // 支援動態切換影片貼圖的綠幕 Shader
+      // 終極防殘影綠幕 Shader (色度優勢演算法 + GPU 像素徹底剔除 discard)
       AFRAME.registerShader('chromakey', {
         schema: {
-          src: { type: 'map' },
-          color: { type: 'color', default: '#00FF00' },
-          similarity: { type: 'number', default: 0.4 },
-          smoothness: { type: 'number', default: 0.1 }
+          src: { type: 'map' }
         },
         init: function (data) {
           const videoEl = typeof data.src === 'string' ? document.querySelector(data.src) : data.src;
@@ -25,10 +22,7 @@
           
           this.material = new THREE.ShaderMaterial({
             uniforms: {
-              uTexture: { value: this.videoTexture },
-              uKeyColor: { value: new THREE.Color(data.color) },
-              uSimilarity: { value: data.similarity },
-              uSmoothness: { value: data.smoothness }
+              uTexture: { value: this.videoTexture }
             },
             vertexShader: `
               varying vec2 vUv;
@@ -38,20 +32,33 @@
               }
             `,
             fragmentShader: `
+              precision mediump float;
               uniform sampler2D uTexture;
-              uniform vec3 uKeyColor;
-              uniform float uSimilarity;
-              uniform float uSmoothness;
               varying vec2 vUv;
 
               void main() {
-                vec4 videoColor = texture2D(uTexture, vUv);
-                float dist = distance(videoColor.rgb, uKeyColor);
-                float alpha = smoothstep(uSimilarity, uSimilarity + uSmoothness, dist);
-                gl_FragColor = vec4(videoColor.rgb, videoColor.a * alpha);
+                vec4 texColor = texture2D(uTexture, vUv);
+
+                // 計算綠色相對於紅、藍的純度優勢 (無視 MP4 壓縮導致的色偏)
+                float maxRB = max(texColor.r, texColor.b);
+                float greenDominance = texColor.g - maxRB;
+
+                // 只要綠色優勢大於 0.1 且綠色通道足夠亮，直接從 GPU 剔除，杜絕任何半透明綠框
+                if (greenDominance > 0.12 && texColor.g > 0.3) {
+                  discard;
+                }
+
+                // 火柴人黑白邊緣抗鋸齒羽化
+                float alpha = 1.0;
+                if (greenDominance > 0.04) {
+                  alpha = 1.0 - smoothstep(0.04, 0.12, greenDominance);
+                }
+
+                gl_FragColor = vec4(texColor.rgb, alpha);
               }
             `,
-            transparent: true
+            transparent: true,
+            depthWrite: false
           });
         },
         update: function (data) {
@@ -64,9 +71,6 @@
               this.videoTexture.magFilter = THREE.LinearFilter;
               this.material.uniforms.uTexture.value = this.videoTexture;
             }
-            this.material.uniforms.uKeyColor.value.set(data.color);
-            this.material.uniforms.uSimilarity.value = data.similarity;
-            this.material.uniforms.uSmoothness.value = data.smoothness;
           }
         }
       });
@@ -153,7 +157,6 @@
              device-orientation-permission-ui="enabled: false">
         
         <a-assets id="video-assets">
-            <!-- 在此處列出根目錄下的所有動畫影片 -->
             <video id="vid-1" src="./stickman1.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
             <video id="vid-2" src="./stickman2.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
             <video id="vid-3" src="./stickman3.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
@@ -161,13 +164,13 @@
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- 目標 0：鬼牌（純感應條件） -->
+        <!-- 目標 0：鬼牌（觸發感應） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆（隨機火柴人播放位置） -->
+        <!-- 目標 1：牌堆（火柴人登場處） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             <a-plane id="stickman-plane"
-                     material="shader: chromakey; src: #vid-1; color: #00FF00; similarity: 0.4; smoothness: 0.1;"
+                     material="shader: chromakey; src: #vid-1;"
                      position="0 0 0.05" 
                      rotation="0 0 0"
                      width="1.0" 
@@ -184,7 +187,6 @@
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
 
-        // 動畫影片 ID 清單
         const videoIdList = ['vid-1', 'vid-2', 'vid-3'];
         let currentActiveVideo = null;
         let lastPlayedIndex = -1;
@@ -201,7 +203,6 @@
             });
         });
 
-        // 隨機選取不與上次重複的影片
         function getRandomVideo() {
             let nextIndex = Math.floor(Math.random() * videoIdList.length);
             if (videoIdList.length > 1) {
@@ -217,18 +218,18 @@
             isVibrationAllowed = true;
             if (navigator.vibrate) navigator.vibrate(50); 
 
-            // 一次性喚醒所有輪播影片，突破 iOS 自動播放封鎖
+            // 一次性喚醒所有動畫
             videoIdList.forEach(id => {
                 const vid = document.getElementById(id);
                 if (vid) {
                     vid.play().then(() => {
                         vid.pause();
                         vid.currentTime = 0;
-                    }).catch(err => console.log("Video warm-up error:", id, err));
+                    }).catch(err => console.log("Video warm-up:", id, err));
                 }
             });
 
-            // iOS Safari 鏡頭預檢
+            // Safari 鏡頭授權預檢
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     const tempStream = await navigator.mediaDevices.getUserMedia({
@@ -265,16 +266,15 @@
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
                         
-                        // 1. 隨機選取影片並動態換上貼圖
+                        // 隨機選取動畫並切換
                         currentActiveVideo = getRandomVideo();
                         stickmanPlane.setAttribute('material', 'src', '#' + currentActiveVideo.id);
 
-                        // 2. 顯示並播放選中的影片
                         stickmanPlane.setAttribute('visible', 'true');
                         currentActiveVideo.currentTime = 0;
                         currentActiveVideo.play();
 
-                        // 3. 瞬間閃白
+                        // 閃白反饋
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -282,7 +282,7 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // 4. 震動
+                        // 震動反饋
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);

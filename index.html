@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位透視眼 - 隨機輪播動畫</title>
+    <title>數位透視眼 - 空間位移與方向鎖定</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -39,16 +39,16 @@
               void main() {
                 vec4 texColor = texture2D(uTexture, vUv);
 
-                // 計算綠色相對於紅、藍的純度優勢 (無視 MP4 壓縮導致的色偏)
+                // 計算綠色相對於紅藍的優勢
                 float maxRB = max(texColor.r, texColor.b);
                 float greenDominance = texColor.g - maxRB;
 
-                // 只要綠色優勢大於 0.1 且綠色通道足夠亮，直接從 GPU 剔除，杜絕任何半透明綠框
+                // 綠幕直接丟棄，零綠色殘影
                 if (greenDominance > 0.12 && texColor.g > 0.3) {
                   discard;
                 }
 
-                // 火柴人黑白邊緣抗鋸齒羽化
+                // 邊緣羽化
                 float alpha = 1.0;
                 if (greenDominance > 0.04) {
                   alpha = 1.0 - smoothstep(0.04, 0.12, greenDominance);
@@ -157,26 +157,31 @@
              device-orientation-permission-ui="enabled: false">
         
         <a-assets id="video-assets">
+            <!-- 動畫清單：vid-1 為 X 光機（走路），vid-2 為跳傘（空降） -->
             <video id="vid-1" src="./stickman1.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
             <video id="vid-2" src="./stickman2.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
-            <video id="vid-3" src="./stickman3.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- 目標 0：鬼牌（觸發感應） -->
+        <!-- 目標 0：鬼牌（純感應條件） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆（火柴人登場處） -->
+        <!-- 目標 1：牌堆 -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
-            <a-plane id="stickman-plane"
-                     material="shader: chromakey; src: #vid-1;"
-                     position="0 0 0.05" 
-                     rotation="0 0 0"
-                     width="1.0" 
-                     height="1.0"
-                     visible="false">
-            </a-plane>
+            <!-- 
+                空間位移容器 (Rig)：
+                由 A-Frame 動畫引擎控制從牌外平滑移動到牌心
+            -->
+            <a-entity id="character-rig">
+                <a-plane id="stickman-plane"
+                         material="shader: chromakey; src: #vid-1;"
+                         position="0 0 0" 
+                         width="1.1" 
+                         height="1.1"
+                         visible="false">
+                </a-plane>
+            </a-entity>
         </a-entity>
     </a-scene>
 
@@ -187,8 +192,23 @@
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
 
-        const videoIdList = ['vid-1', 'vid-2', 'vid-3'];
-        let currentActiveVideo = null;
+        // 動畫設定庫：為不同動畫定義入場起點與時間
+        const animationLibrary = [
+            {
+                id: 'vid-1', // X光機推車 (從左側視野走進來)
+                startPos: { x: -1.3, y: 0.0, z: 0.1 },
+                startScale: '0.85 0.85 0.85',
+                dur: 4000
+            },
+            {
+                id: 'vid-2', // 跳傘空降 (從上方空降落到牌面)
+                startPos: { x: 0.0, y: 1.4, z: 0.35 },
+                startScale: '0.7 0.7 0.7',
+                dur: 4500
+            }
+        ];
+
+        let currentConfig = null;
         let lastPlayedIndex = -1;
 
         window.addEventListener('load', () => {
@@ -203,33 +223,54 @@
             });
         });
 
-        function getRandomVideo() {
-            let nextIndex = Math.floor(Math.random() * videoIdList.length);
-            if (videoIdList.length > 1) {
+        function getRandomConfig() {
+            let nextIndex = Math.floor(Math.random() * animationLibrary.length);
+            if (animationLibrary.length > 1) {
                 while (nextIndex === lastPlayedIndex) {
-                    nextIndex = Math.floor(Math.random() * videoIdList.length);
+                    nextIndex = Math.floor(Math.random() * animationLibrary.length);
                 }
             }
             lastPlayedIndex = nextIndex;
-            return document.getElementById(videoIdList[nextIndex]);
+            return animationLibrary[nextIndex];
+        }
+
+        // 方向自動校正：確保火柴人永遠朝向手機上方
+        function enforceScreenUpright(targetEntity, rigEntity, baseStartPos) {
+            const targetObj = targetEntity.object3D;
+            // 取得卡片在鏡頭坐標系下的 Local Up 向量
+            const localUp = new THREE.Vector3(0, 1, 0).applyQuaternion(targetObj.quaternion);
+
+            // 若卡片頂部指向手機下方 (localUp.y < 0)，表示辨識相反，需要旋轉 180 度補正
+            const isFlipped = localUp.y < 0;
+            rigEntity.setAttribute('rotation', isFlipped ? '0 0 180' : '0 0 0');
+
+            // 確保入場的起點相對於手機螢幕的一致性
+            if (isFlipped) {
+                return {
+                    x: -baseStartPos.x,
+                    y: -baseStartPos.y,
+                    z: baseStartPos.z
+                };
+            }
+            return baseStartPos;
         }
 
         async function startMagic() {
             isVibrationAllowed = true;
             if (navigator.vibrate) navigator.vibrate(50); 
 
-            // 一次性喚醒所有動畫
-            videoIdList.forEach(id => {
-                const vid = document.getElementById(id);
+            // 一次性解鎖影片
+            animationLibrary.forEach(item => {
+                const vid = document.getElementById(item.id);
                 if (vid) {
                     vid.play().then(() => {
                         vid.pause();
                         vid.currentTime = 0;
-                    }).catch(err => console.log("Video warm-up:", id, err));
+                    }).catch(err => console.log("Video warm-up error:", item.id, err));
                 }
             });
 
-            // Safari 鏡頭授權預檢
+            // iOS Safari 鏡頭預檢
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     const tempStream = await navigator.mediaDevices.getUserMedia({
@@ -253,8 +294,9 @@
         function initMagicLogic() {
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
-            const flashBang = document.getElementById('flash-bang');
+            const characterRig = document.getElementById('character-rig');
             const stickmanPlane = document.getElementById('stickman-plane');
+            const flashBang = document.getElementById('flash-bang');
 
             jokerTarget.addEventListener("targetFound", () => { jokerFound = true; checkConditions(); });
             jokerTarget.addEventListener("targetLost", () => { jokerFound = false; checkConditions(); });
@@ -265,16 +307,42 @@
                 if (jokerFound && xCardFound) {
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
-                        
-                        // 隨機選取動畫並切換
-                        currentActiveVideo = getRandomVideo();
-                        stickmanPlane.setAttribute('material', 'src', '#' + currentActiveVideo.id);
 
+                        // 1. 隨機選取動畫配置
+                        currentConfig = getRandomConfig();
+                        const activeVideo = document.getElementById(currentConfig.id);
+
+                        // 2. 自動判斷撲克牌是否顛倒，並計算旋轉補正與動態起點
+                        const adjustedPos = enforceScreenUpright(xTarget, characterRig, currentConfig.startPos);
+
+                        // 3. 設定初始位置與比例
+                        characterRig.setAttribute('position', `${adjustedPos.x} ${adjustedPos.y} ${adjustedPos.z}`);
+                        characterRig.setAttribute('scale', currentConfig.startScale);
+
+                        // 4. 動態綁定 A-Frame 移動動畫（平滑抵達牌心 0 0 0.05）
+                        characterRig.removeAttribute('animation__move');
+                        characterRig.removeAttribute('animation__scale');
+
+                        characterRig.setAttribute('animation__move', {
+                            property: 'position',
+                            to: '0 0 0.05',
+                            dur: currentConfig.dur,
+                            easing: 'easeOutQuad'
+                        });
+                        characterRig.setAttribute('animation__scale', {
+                            property: 'scale',
+                            to: '1 1 1',
+                            dur: currentConfig.dur,
+                            easing: 'easeOutQuad'
+                        });
+
+                        // 5. 切換材質並開始播放影片
+                        stickmanPlane.setAttribute('material', 'src', '#' + currentConfig.id);
                         stickmanPlane.setAttribute('visible', 'true');
-                        currentActiveVideo.currentTime = 0;
-                        currentActiveVideo.play();
+                        activeVideo.currentTime = 0;
+                        activeVideo.play();
 
-                        // 閃白反饋
+                        // 6. 閃白反饋
                         flashBang.style.transition = "none";
                         flashBang.style.opacity = "1";
                         setTimeout(() => {
@@ -282,7 +350,7 @@
                             flashBang.style.opacity = "0";
                         }, 50);
 
-                        // 震動反饋
+                        // 7. 震動反饋
                         if (isVibrationAllowed && navigator.vibrate) {
                             androidVibrateInterval = setInterval(() => {
                                 navigator.vibrate(200);
@@ -292,8 +360,9 @@
                 } else {
                     if (!jokerFound || !xCardFound) {
                         stickmanPlane.setAttribute('visible', 'false');
-                        if (currentActiveVideo) {
-                            currentActiveVideo.pause();
+                        if (currentConfig) {
+                            const activeVideo = document.getElementById(currentConfig.id);
+                            if (activeVideo) activeVideo.pause();
                         }
                     }
 

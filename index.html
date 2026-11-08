@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位透視眼 - 金黃光圈與防顛倒強化版</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>數位透視眼 - 自動留影版</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -42,11 +42,12 @@
                 float maxRB = max(texColor.r, texColor.b);
                 float greenDominance = texColor.g - maxRB;
 
-                // 徹底剔除綠幕，杜絕殘影
+                // 綠幕直接丟棄，杜絕半透明殘影
                 if (greenDominance > 0.12 && texColor.g > 0.3) {
                   discard;
                 }
 
+                // 邊緣羽化
                 float alpha = 1.0;
                 if (greenDominance > 0.04) {
                   alpha = 1.0 - smoothstep(0.04, 0.12, greenDominance);
@@ -73,7 +74,7 @@
         }
       });
 
-      // 持續方向自動鎖定組件：每影格校正撲克牌上下方向，杜絕對稱牌背 180 度翻轉
+      // 每影格自動校正撲克牌上下方向，杜絕 180 度翻轉
       AFRAME.registerComponent('auto-upright', {
         schema: {
           enabled: { type: 'boolean', default: false }
@@ -84,10 +85,7 @@
           const targetObj = this.el.sceneEl.querySelector('#x-target').object3D;
           if (!targetObj.visible) return;
 
-          // 取得撲克牌局部 Y 軸在相機坐標系中的投影
           const cardUp = new THREE.Vector3(0, 1, 0).applyQuaternion(targetObj.quaternion);
-
-          // 若卡片頂部朝下 (cardUp.y < 0)，補正 180 度；否則保持 0 度
           const isFlipped = cardUp.y < 0;
           const currentRotZ = isFlipped ? 180 : 0;
 
@@ -100,6 +98,11 @@
     <style>
         .mindar-ui-scanning, .mindar-ui-loading {
             display: none !important;
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #000;
         }
 
         #overlay {
@@ -123,7 +126,7 @@
             padding: 15px;
             border-radius: 15px;
             margin-bottom: 25px;
-            box-shadow: 0 0 25px rgba(255, 215, 0, 0.35);
+            box-shadow: 0 0 25px rgba(0, 242, 254, 0.35);
             display: inline-block;
         }
 
@@ -131,13 +134,13 @@
             padding: 16px 40px;
             font-size: 18px;
             font-weight: bold;
-            background: linear-gradient(45deg, #2b1f00, #ffd700);
-            color: #000;
-            border: 1px solid #ffe600;
+            background: linear-gradient(45deg, #1f1c2c, #4facfe);
+            color: white;
+            border: 1px solid #00f2fe;
             border-radius: 30px;
             cursor: pointer;
             transition: 0.3s;
-            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
         }
         .start-btn:hover {
             transform: scale(1.05);
@@ -152,33 +155,84 @@
             pointer-events: none;
             transition: opacity 0.1s ease-out;
         }
+
+        /* 拍照完成展示彈窗 */
+        #photo-modal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 10000;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            box-sizing: border-box;
+            padding: 20px;
+        }
+
+        #captured-image {
+            max-width: 90%;
+            max-height: 70vh;
+            border-radius: 12px;
+            border: 2px solid #00f2fe;
+            box-shadow: 0 0 30px rgba(0, 242, 254, 0.4);
+            margin-bottom: 15px;
+        }
+
+        .photo-tip {
+            color: #ddd;
+            font-size: 14px;
+            margin-bottom: 15px;
+            font-family: sans-serif;
+            letter-spacing: 1px;
+        }
+
+        .retry-btn {
+            padding: 10px 28px;
+            font-size: 15px;
+            background: #222;
+            color: #00f2fe;
+            border: 1px solid #00f2fe;
+            border-radius: 20px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
 
     <div id="overlay">
-        <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #ffd700;">數位透視眼</h2>
-        <p style="margin-bottom: 25px; color: #aaa; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
-        
+        <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #00f2fe;">數位透視眼</h2>
+        <p style="margin-bottom: 25px; color: #888; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
         <div id="qrcode-container">
             <div id="qrcode"></div>
         </div>
-
         <button class="start-btn" onclick="startMagic()">啟動數位透視眼</button>
     </div>
 
     <div id="flash-bang"></div>
 
+    <!-- 拍攝完成彈出視窗 -->
+    <div id="photo-modal">
+        <h3 style="color: #00f2fe; margin-top: 0; letter-spacing: 2px;">透視預言已記錄</h3>
+        <img id="captured-image" alt="透視預言照片">
+        <div class="photo-tip">長按上方照片即可儲存至相簿</div>
+        <button class="retry-btn" onclick="closePhotoModal()">再次體驗</button>
+    </div>
+
+    <!-- 隱藏的拍照合成畫布 -->
+    <canvas id="photo-canvas" style="display: none;"></canvas>
+
     <a-scene id="magic-scene" 
              mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF:0.001; filterBeta: 0.01;" 
              color-space="sRGB" 
-             renderer="colorManagement: true, physicallyCorrectLights" 
+             renderer="colorManagement: true, preserveDrawingBuffer: true" 
              vr-mode-ui="enabled: false" 
              device-orientation-permission-ui="enabled: false">
         
         <a-assets id="video-assets">
-            <video id="vid-1" src="./stickman1.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
-            <video id="vid-2" src="./stickman2.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
+            <!-- 移除 loop 屬性，讓影片播放完自動定格觸發拍照 -->
+            <video id="vid-1" src="./stickman1.mp4" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
+            <video id="vid-2" src="./stickman2.mp4" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -186,35 +240,8 @@
         <!-- 目標 0：鬼牌（感應條件） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆（著陸與展示目標） -->
+        <!-- 目標 1：牌堆（移除金黃色圓形與十字，維持純淨牌面） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
-            
-            <!-- 金黃色高質感科技鎖定光圈 (剛辨識時立刻擴張聚焦至牌背) -->
-            <a-entity id="golden-circle-group" visible="false" position="0 0 0.02">
-                <!-- 外層金環（旋轉 + 呼吸閃爍） -->
-                <a-ring color="#FFD700" radius-inner="0.48" radius-outer="0.51" opacity="0.9"
-                        material="shader: flat; transparent: true;"
-                        animation="property: rotation; to: 0 0 360; loop: true; dur: 6000; easing: linear"
-                        animation__pulse="property: opacity; from: 0.5; to: 1.0; dir: alternate; loop: true; dur: 800">
-                </a-ring>
-
-                <!-- 內層精準金色點線圈（逆時針快速旋轉） -->
-                <a-ring color="#FFF099" radius-inner="0.36" radius-outer="0.38" opacity="0.8"
-                        material="shader: flat; transparent: true;"
-                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 3500; easing: linear">
-                </a-ring>
-
-                <!-- 科技準星四角指引線 -->
-                <a-entity position="0 0 0.005" animation="property: rotation; to: 0 0 360; loop: true; dur: 8000; easing: linear">
-                    <a-plane color="#FFD700" width="0.75" height="0.015" position="0 0 0" material="shader: flat;"></a-plane>
-                    <a-plane color="#FFD700" width="0.015" height="0.75" position="0 0 0" material="shader: flat;"></a-plane>
-                </a-entity>
-
-                <!-- 中心點金光 -->
-                <a-circle color="#FFD700" radius="0.04" position="0 0 0.006" material="shader: flat;"></a-circle>
-            </a-entity>
-
-            <!-- 空間位移容器 (掛載自動方向校正組件) -->
             <a-entity id="character-rig" auto-upright="enabled: false">
                 <a-plane id="stickman-plane"
                          material="shader: chromakey; src: #vid-1;"
@@ -233,6 +260,7 @@
         let xCardFound = false;
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
+        let hasCaptured = false;
 
         const animationLibrary = [
             {
@@ -275,11 +303,47 @@
             return animationLibrary[nextIndex];
         }
 
+        // 合成手機鏡頭畫面與 WebGL AR 畫面拍照
+        function captureMagicSnapshot() {
+            if (hasCaptured) return;
+            hasCaptured = true;
+
+            const sceneEl = document.querySelector('a-scene');
+            const arVideo = document.querySelector('video:not([id^="vid-"])'); // 抓取 MindAR 的真實相機 video
+            const webglCanvas = sceneEl.canvas;
+            const photoCanvas = document.getElementById('photo-canvas');
+            const ctx = photoCanvas.getContext('2d');
+
+            if (!arVideo || !webglCanvas) return;
+
+            photoCanvas.width = webglCanvas.width;
+            photoCanvas.height = webglCanvas.height;
+
+            // 1. 繪製真實背景鏡頭 (裁剪為相符比例)
+            ctx.drawImage(arVideo, 0, 0, photoCanvas.width, photoCanvas.height);
+
+            // 2. 疊合 A-Frame 的 WebGL AR 內容 (火柴人)
+            ctx.drawImage(webglCanvas, 0, 0, photoCanvas.width, photoCanvas.height);
+
+            // 3. 輸出成圖片展示
+            const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.92);
+            document.getElementById('captured-image').src = dataUrl;
+            document.getElementById('photo-modal').style.display = 'flex';
+
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // 拍照快門雙震動
+        }
+
+        function closePhotoModal() {
+            document.getElementById('photo-modal').style.display = 'none';
+            hasCaptured = false;
+            hasTriggeredVisual = false;
+        }
+
         async function startMagic() {
             isVibrationAllowed = true;
             if (navigator.vibrate) navigator.vibrate(50); 
 
-            // 一次性喚醒全部影片
+            // 一次性喚醒所有動畫
             animationLibrary.forEach(item => {
                 const vid = document.getElementById(item.id);
                 if (vid) {
@@ -290,7 +354,7 @@
                 }
             });
 
-            // Safari 相機授權預檢
+            // iOS Safari 鏡頭預檢
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     const tempStream = await navigator.mediaDevices.getUserMedia({
@@ -313,7 +377,6 @@
         function initMagicLogic() {
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
-            const goldenCircle = document.getElementById('golden-circle-group');
             const characterRig = document.getElementById('character-rig');
             const stickmanPlane = document.getElementById('stickman-plane');
             const flashBang = document.getElementById('flash-bang');
@@ -325,27 +388,24 @@
 
             function checkConditions() {
                 if (jokerFound && xCardFound) {
-                    if (!hasTriggeredVisual) {
+                    if (!hasTriggeredVisual && !hasCaptured) {
                         hasTriggeredVisual = true;
 
-                        // 1. 立即顯現「金黃色鎖定光圈」，框住牌背靶心
-                        goldenCircle.setAttribute('visible', 'true');
-                        goldenCircle.setAttribute('scale', '1.6 1.6 1.6');
-                        goldenCircle.setAttribute('animation__shrink', {
-                            property: 'scale',
-                            to: '1 1 1',
-                            dur: 1000,
-                            easing: 'easeOutBack'
-                        });
-
-                        // 2. 隨機選取動畫配置
+                        // 1. 隨機選取動畫配置
                         currentConfig = getRandomConfig();
                         const activeVideo = document.getElementById(currentConfig.id);
 
-                        // 3. 啟動即時自動校正方向組件 (auto-upright)
+                        // 2. 監聽影片結束事件：定格並自動拍照
+                        activeVideo.onended = () => {
+                            // 延遲 200ms 確保最後一影格渲染完成
+                            setTimeout(() => {
+                                captureMagicSnapshot();
+                            }, 200);
+                        };
+
+                        // 3. 啟動每影格自動校正方向 (auto-upright)
                         characterRig.setAttribute('auto-upright', 'enabled', true);
 
-                        // 依據卡片朝向計算起始空間位移
                         const targetObj = xTarget.object3D;
                         const cardUp = new THREE.Vector3(0, 1, 0).applyQuaternion(targetObj.quaternion);
                         const isFlipped = cardUp.y < 0;
@@ -395,18 +455,21 @@
                     }
                 } else {
                     if (!jokerFound || !xCardFound) {
-                        stickmanPlane.setAttribute('visible', 'false');
-                        goldenCircle.setAttribute('visible', 'false');
-                        characterRig.setAttribute('auto-upright', 'enabled', false);
+                        if (!hasCaptured) {
+                            stickmanPlane.setAttribute('visible', 'false');
+                            characterRig.setAttribute('auto-upright', 'enabled', false);
 
-                        if (currentConfig) {
-                            const activeVideo = document.getElementById(currentConfig.id);
-                            if (activeVideo) activeVideo.pause();
+                            if (currentConfig) {
+                                const activeVideo = document.getElementById(currentConfig.id);
+                                if (activeVideo) activeVideo.pause();
+                            }
                         }
                     }
 
                     if (!jokerFound && !xCardFound) {
-                        hasTriggeredVisual = false;
+                        if (!hasCaptured) {
+                            hasTriggeredVisual = false;
+                        }
                         if (androidVibrateInterval) {
                             clearInterval(androidVibrateInterval);
                             androidVibrateInterval = null;

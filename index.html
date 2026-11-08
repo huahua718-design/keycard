@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>數位透視眼 - 空間位移與方向鎖定</title>
+    <title>數位透視眼 - 金黃光圈與防顛倒強化版</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -39,16 +39,14 @@
               void main() {
                 vec4 texColor = texture2D(uTexture, vUv);
 
-                // 計算綠色相對於紅藍的優勢
                 float maxRB = max(texColor.r, texColor.b);
                 float greenDominance = texColor.g - maxRB;
 
-                // 綠幕直接丟棄，零綠色殘影
+                // 徹底剔除綠幕，杜絕殘影
                 if (greenDominance > 0.12 && texColor.g > 0.3) {
                   discard;
                 }
 
-                // 邊緣羽化
                 float alpha = 1.0;
                 if (greenDominance > 0.04) {
                   alpha = 1.0 - smoothstep(0.04, 0.12, greenDominance);
@@ -72,6 +70,29 @@
               this.material.uniforms.uTexture.value = this.videoTexture;
             }
           }
+        }
+      });
+
+      // 持續方向自動鎖定組件：每影格校正撲克牌上下方向，杜絕對稱牌背 180 度翻轉
+      AFRAME.registerComponent('auto-upright', {
+        schema: {
+          enabled: { type: 'boolean', default: false }
+        },
+        tick: function () {
+          if (!this.data.enabled) return;
+
+          const targetObj = this.el.sceneEl.querySelector('#x-target').object3D;
+          if (!targetObj.visible) return;
+
+          // 取得撲克牌局部 Y 軸在相機坐標系中的投影
+          const cardUp = new THREE.Vector3(0, 1, 0).applyQuaternion(targetObj.quaternion);
+
+          // 若卡片頂部朝下 (cardUp.y < 0)，補正 180 度；否則保持 0 度
+          const isFlipped = cardUp.y < 0;
+          const currentRotZ = isFlipped ? 180 : 0;
+
+          const rigObj = this.el.object3D;
+          rigObj.rotation.z = THREE.MathUtils.degToRad(currentRotZ);
         }
       });
     </script>
@@ -102,7 +123,7 @@
             padding: 15px;
             border-radius: 15px;
             margin-bottom: 25px;
-            box-shadow: 0 0 25px rgba(57, 255, 20, 0.3);
+            box-shadow: 0 0 25px rgba(255, 215, 0, 0.35);
             display: inline-block;
         }
 
@@ -110,16 +131,15 @@
             padding: 16px 40px;
             font-size: 18px;
             font-weight: bold;
-            background: linear-gradient(45deg, #1f1c2c, #4facfe);
-            color: white;
-            border: 1px solid #00f2fe;
+            background: linear-gradient(45deg, #2b1f00, #ffd700);
+            color: #000;
+            border: 1px solid #ffe600;
             border-radius: 30px;
             cursor: pointer;
             transition: 0.3s;
-            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2);
+            box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
         }
         .start-btn:hover {
-            background: linear-gradient(45deg, #4facfe, #00f2fe);
             transform: scale(1.05);
         }
         
@@ -137,8 +157,8 @@
 <body>
 
     <div id="overlay">
-        <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #00f2fe;">數位透視眼</h2>
-        <p style="margin-bottom: 25px; color: #888; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
+        <h2 style="margin-bottom: 5px; letter-spacing: 2px; color: #ffd700;">數位透視眼</h2>
+        <p style="margin-bottom: 25px; color: #aaa; font-size: 14px;">請用觀眾手機掃描，或由魔術師直接啟動</p>
         
         <div id="qrcode-container">
             <div id="qrcode"></div>
@@ -157,23 +177,45 @@
              device-orientation-permission-ui="enabled: false">
         
         <a-assets id="video-assets">
-            <!-- 動畫清單：vid-1 為 X 光機（走路），vid-2 為跳傘（空降） -->
             <video id="vid-1" src="./stickman1.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
             <video id="vid-2" src="./stickman2.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <!-- 目標 0：鬼牌（純感應條件） -->
+        <!-- 目標 0：鬼牌（感應條件） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆 -->
+        <!-- 目標 1：牌堆（著陸與展示目標） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
-            <!-- 
-                空間位移容器 (Rig)：
-                由 A-Frame 動畫引擎控制從牌外平滑移動到牌心
-            -->
-            <a-entity id="character-rig">
+            
+            <!-- 金黃色高質感科技鎖定光圈 (剛辨識時立刻擴張聚焦至牌背) -->
+            <a-entity id="golden-circle-group" visible="false" position="0 0 0.02">
+                <!-- 外層金環（旋轉 + 呼吸閃爍） -->
+                <a-ring color="#FFD700" radius-inner="0.48" radius-outer="0.51" opacity="0.9"
+                        material="shader: flat; transparent: true;"
+                        animation="property: rotation; to: 0 0 360; loop: true; dur: 6000; easing: linear"
+                        animation__pulse="property: opacity; from: 0.5; to: 1.0; dir: alternate; loop: true; dur: 800">
+                </a-ring>
+
+                <!-- 內層精準金色點線圈（逆時針快速旋轉） -->
+                <a-ring color="#FFF099" radius-inner="0.36" radius-outer="0.38" opacity="0.8"
+                        material="shader: flat; transparent: true;"
+                        animation="property: rotation; to: 0 0 -360; loop: true; dur: 3500; easing: linear">
+                </a-ring>
+
+                <!-- 科技準星四角指引線 -->
+                <a-entity position="0 0 0.005" animation="property: rotation; to: 0 0 360; loop: true; dur: 8000; easing: linear">
+                    <a-plane color="#FFD700" width="0.75" height="0.015" position="0 0 0" material="shader: flat;"></a-plane>
+                    <a-plane color="#FFD700" width="0.015" height="0.75" position="0 0 0" material="shader: flat;"></a-plane>
+                </a-entity>
+
+                <!-- 中心點金光 -->
+                <a-circle color="#FFD700" radius="0.04" position="0 0 0.006" material="shader: flat;"></a-circle>
+            </a-entity>
+
+            <!-- 空間位移容器 (掛載自動方向校正組件) -->
+            <a-entity id="character-rig" auto-upright="enabled: false">
                 <a-plane id="stickman-plane"
                          material="shader: chromakey; src: #vid-1;"
                          position="0 0 0" 
@@ -192,16 +234,15 @@
         let hasTriggeredVisual = false;
         let androidVibrateInterval = null;
 
-        // 動畫設定庫：為不同動畫定義入場起點與時間
         const animationLibrary = [
             {
-                id: 'vid-1', // X光機推車 (從左側視野走進來)
+                id: 'vid-1', // X光機推車 (由左側走進來)
                 startPos: { x: -1.3, y: 0.0, z: 0.1 },
                 startScale: '0.85 0.85 0.85',
                 dur: 4000
             },
             {
-                id: 'vid-2', // 跳傘空降 (從上方空降落到牌面)
+                id: 'vid-2', // 跳傘空降 (由上方降落至牌心)
                 startPos: { x: 0.0, y: 1.4, z: 0.35 },
                 startScale: '0.7 0.7 0.7',
                 dur: 4500
@@ -234,43 +275,22 @@
             return animationLibrary[nextIndex];
         }
 
-        // 方向自動校正：確保火柴人永遠朝向手機上方
-        function enforceScreenUpright(targetEntity, rigEntity, baseStartPos) {
-            const targetObj = targetEntity.object3D;
-            // 取得卡片在鏡頭坐標系下的 Local Up 向量
-            const localUp = new THREE.Vector3(0, 1, 0).applyQuaternion(targetObj.quaternion);
-
-            // 若卡片頂部指向手機下方 (localUp.y < 0)，表示辨識相反，需要旋轉 180 度補正
-            const isFlipped = localUp.y < 0;
-            rigEntity.setAttribute('rotation', isFlipped ? '0 0 180' : '0 0 0');
-
-            // 確保入場的起點相對於手機螢幕的一致性
-            if (isFlipped) {
-                return {
-                    x: -baseStartPos.x,
-                    y: -baseStartPos.y,
-                    z: baseStartPos.z
-                };
-            }
-            return baseStartPos;
-        }
-
         async function startMagic() {
             isVibrationAllowed = true;
             if (navigator.vibrate) navigator.vibrate(50); 
 
-            // 一次性解鎖影片
+            // 一次性喚醒全部影片
             animationLibrary.forEach(item => {
                 const vid = document.getElementById(item.id);
                 if (vid) {
                     vid.play().then(() => {
                         vid.pause();
                         vid.currentTime = 0;
-                    }).catch(err => console.log("Video warm-up error:", item.id, err));
+                    }).catch(err => console.log("Video warm-up:", item.id, err));
                 }
             });
 
-            // iOS Safari 鏡頭預檢
+            // Safari 相機授權預檢
             try {
                 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                     const tempStream = await navigator.mediaDevices.getUserMedia({
@@ -285,8 +305,7 @@
             document.getElementById('overlay').style.display = 'none';
 
             const sceneEl = document.querySelector('a-scene');
-            const arSystem = sceneEl.systems["mindar-image-system"];
-            arSystem.start(); 
+            sceneEl.systems["mindar-image-system"].start(); 
 
             initMagicLogic();
         }
@@ -294,6 +313,7 @@
         function initMagicLogic() {
             const jokerTarget = document.getElementById('joker-target');
             const xTarget = document.getElementById('x-target');
+            const goldenCircle = document.getElementById('golden-circle-group');
             const characterRig = document.getElementById('character-rig');
             const stickmanPlane = document.getElementById('stickman-plane');
             const flashBang = document.getElementById('flash-bang');
@@ -308,21 +328,37 @@
                     if (!hasTriggeredVisual) {
                         hasTriggeredVisual = true;
 
-                        // 1. 隨機選取動畫配置
+                        // 1. 立即顯現「金黃色鎖定光圈」，框住牌背靶心
+                        goldenCircle.setAttribute('visible', 'true');
+                        goldenCircle.setAttribute('scale', '1.6 1.6 1.6');
+                        goldenCircle.setAttribute('animation__shrink', {
+                            property: 'scale',
+                            to: '1 1 1',
+                            dur: 1000,
+                            easing: 'easeOutBack'
+                        });
+
+                        // 2. 隨機選取動畫配置
                         currentConfig = getRandomConfig();
                         const activeVideo = document.getElementById(currentConfig.id);
 
-                        // 2. 自動判斷撲克牌是否顛倒，並計算旋轉補正與動態起點
-                        const adjustedPos = enforceScreenUpright(xTarget, characterRig, currentConfig.startPos);
+                        // 3. 啟動即時自動校正方向組件 (auto-upright)
+                        characterRig.setAttribute('auto-upright', 'enabled', true);
 
-                        // 3. 設定初始位置與比例
-                        characterRig.setAttribute('position', `${adjustedPos.x} ${adjustedPos.y} ${adjustedPos.z}`);
+                        // 依據卡片朝向計算起始空間位移
+                        const targetObj = xTarget.object3D;
+                        const cardUp = new THREE.Vector3(0, 1, 0).applyQuaternion(targetObj.quaternion);
+                        const isFlipped = cardUp.y < 0;
+
+                        const startX = isFlipped ? -currentConfig.startPos.x : currentConfig.startPos.x;
+                        const startY = isFlipped ? -currentConfig.startPos.y : currentConfig.startPos.y;
+
+                        characterRig.setAttribute('position', `${startX} ${startY} ${currentConfig.startPos.z}`);
                         characterRig.setAttribute('scale', currentConfig.startScale);
 
-                        // 4. 動態綁定 A-Frame 移動動畫（平滑抵達牌心 0 0 0.05）
+                        // 4. 平滑移動到牌心
                         characterRig.removeAttribute('animation__move');
                         characterRig.removeAttribute('animation__scale');
-
                         characterRig.setAttribute('animation__move', {
                             property: 'position',
                             to: '0 0 0.05',
@@ -336,7 +372,7 @@
                             easing: 'easeOutQuad'
                         });
 
-                        // 5. 切換材質並開始播放影片
+                        // 5. 播放選取的火柴人影片
                         stickmanPlane.setAttribute('material', 'src', '#' + currentConfig.id);
                         stickmanPlane.setAttribute('visible', 'true');
                         activeVideo.currentTime = 0;
@@ -360,6 +396,9 @@
                 } else {
                     if (!jokerFound || !xCardFound) {
                         stickmanPlane.setAttribute('visible', 'false');
+                        goldenCircle.setAttribute('visible', 'false');
+                        characterRig.setAttribute('auto-upright', 'enabled', false);
+
                         if (currentConfig) {
                             const activeVideo = document.getElementById(currentConfig.id);
                             if (activeVideo) activeVideo.pause();

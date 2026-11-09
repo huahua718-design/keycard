@@ -42,7 +42,7 @@
                 float maxRB = max(texColor.r, texColor.b);
                 float greenDominance = texColor.g - maxRB;
 
-                // 綠幕直接丟棄，杜絕半透明殘影
+                // 徹底剔除綠幕，杜絕殘影
                 if (greenDominance > 0.12 && texColor.g > 0.3) {
                   discard;
                 }
@@ -102,7 +102,7 @@
 
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
-            overflow: hidden; background-color: #000;
+            overflow: hidden;
         }
 
         #overlay {
@@ -156,11 +156,11 @@
             transition: opacity 0.1s ease-out;
         }
 
-        /* 拍照完成展示彈窗 */
+        /* 拍攝完成彈出照片視窗 */
         #photo-modal {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0, 0, 0, 0.9);
+            background: rgba(0, 0, 0, 0.92);
             z-index: 10000;
             display: none;
             flex-direction: column;
@@ -219,18 +219,17 @@
         <button class="retry-btn" onclick="closePhotoModal()">再次體驗</button>
     </div>
 
-    <!-- 隱藏的拍照合成畫布 -->
+    <!-- 隱藏拍照合成畫布 -->
     <canvas id="photo-canvas" style="display: none;"></canvas>
 
     <a-scene id="magic-scene" 
              mindar-image="imageTargetSrc: ./magic-cards.mind; maxTrack: 2; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF:0.001; filterBeta: 0.01;" 
              color-space="sRGB" 
-             renderer="colorManagement: true, preserveDrawingBuffer: true" 
+             renderer="colorManagement: true; preserveDrawingBuffer: true;" 
              vr-mode-ui="enabled: false" 
              device-orientation-permission-ui="enabled: false">
         
         <a-assets id="video-assets">
-            <!-- 移除 loop 屬性，讓影片播放完自動定格觸發拍照 -->
             <video id="vid-1" src="./stickman1.mp4" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
             <video id="vid-2" src="./stickman2.mp4" preload="auto" crossorigin="anonymous" playsinline webkit-playsinline muted></video>
         </a-assets>
@@ -240,7 +239,7 @@
         <!-- 目標 0：鬼牌（感應條件） -->
         <a-entity id="joker-target" mindar-image-target="targetIndex: 0"></a-entity>
 
-        <!-- 目標 1：牌堆（移除金黃色圓形與十字，維持純淨牌面） -->
+        <!-- 目標 1：牌堆（著陸目標） -->
         <a-entity id="x-target" mindar-image-target="targetIndex: 1">
             <a-entity id="character-rig" auto-upright="enabled: false">
                 <a-plane id="stickman-plane"
@@ -303,34 +302,40 @@
             return animationLibrary[nextIndex];
         }
 
-        // 合成手機鏡頭畫面與 WebGL AR 畫面拍照
+        // 核心合成快照：主動強制渲染 WebGL，雙層繪製保留火柴人
         function captureMagicSnapshot() {
             if (hasCaptured) return;
             hasCaptured = true;
 
             const sceneEl = document.querySelector('a-scene');
-            const arVideo = document.querySelector('video:not([id^="vid-"])'); // 抓取 MindAR 的真實相機 video
+            // 尋找 MindAR 建立的鏡頭 video
+            const arVideo = document.querySelector('video:not([id^="vid-"])');
             const webglCanvas = sceneEl.canvas;
             const photoCanvas = document.getElementById('photo-canvas');
             const ctx = photoCanvas.getContext('2d');
 
             if (!arVideo || !webglCanvas) return;
 
+            // 確保擷取時強制渲染當前影格至 buffer，避免被清空
+            if (sceneEl.renderer && sceneEl.object3D && sceneEl.camera) {
+                sceneEl.renderer.render(sceneEl.object3D, sceneEl.camera);
+            }
+
             photoCanvas.width = webglCanvas.width;
             photoCanvas.height = webglCanvas.height;
 
-            // 1. 繪製真實背景鏡頭 (裁剪為相符比例)
+            // 1. 繪製底層真實相機背景
             ctx.drawImage(arVideo, 0, 0, photoCanvas.width, photoCanvas.height);
 
-            // 2. 疊合 A-Frame 的 WebGL AR 內容 (火柴人)
+            // 2. 疊合 WebGL AR 內容（火柴人定格影像）
             ctx.drawImage(webglCanvas, 0, 0, photoCanvas.width, photoCanvas.height);
 
-            // 3. 輸出成圖片展示
-            const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.92);
+            // 3. 輸出照片並彈出展示
+            const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.95);
             document.getElementById('captured-image').src = dataUrl;
             document.getElementById('photo-modal').style.display = 'flex';
 
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // 拍照快門雙震動
+            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         }
 
         function closePhotoModal() {
@@ -339,7 +344,8 @@
             hasTriggeredVisual = false;
         }
 
-        async function startMagic() {
+        function startMagic() {
+            document.getElementById('overlay').style.display = 'none';
             isVibrationAllowed = true;
             if (navigator.vibrate) navigator.vibrate(50); 
 
@@ -350,26 +356,14 @@
                     vid.play().then(() => {
                         vid.pause();
                         vid.currentTime = 0;
-                    }).catch(err => console.log("Video warm-up:", item.id, err));
+                    }).catch(err => console.log("Warm-up:", item.id, err));
                 }
             });
 
-            // iOS Safari 鏡頭預檢
-            try {
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    const tempStream = await navigator.mediaDevices.getUserMedia({
-                        video: { facingMode: "environment" }
-                    });
-                    tempStream.getTracks().forEach(track => track.stop());
-                }
-            } catch (err) {
-                console.warn("Camera check:", err);
-            }
-
-            document.getElementById('overlay').style.display = 'none';
-
+            // 交由 MindAR 官方原生管線開啟相機（不干擾 iOS Safari 硬體指派）
             const sceneEl = document.querySelector('a-scene');
-            sceneEl.systems["mindar-image-system"].start(); 
+            const arSystem = sceneEl.systems["mindar-image-system"];
+            arSystem.start(); 
 
             initMagicLogic();
         }
@@ -395,15 +389,18 @@
                         currentConfig = getRandomConfig();
                         const activeVideo = document.getElementById(currentConfig.id);
 
-                        // 2. 監聽影片結束事件：定格並自動拍照
-                        activeVideo.onended = () => {
-                            // 延遲 200ms 確保最後一影格渲染完成
-                            setTimeout(() => {
-                                captureMagicSnapshot();
-                            }, 200);
+                        // 2. 監聽影片即將結束：在倒數 0.15 秒主動 pause() 定格在最後一幀，隨後拍照
+                        activeVideo.ontimeupdate = () => {
+                            if (activeVideo.duration && activeVideo.currentTime >= activeVideo.duration - 0.15) {
+                                activeVideo.ontimeupdate = null; // 解除監聽
+                                activeVideo.pause(); // 鎖死定格在最後動作
+                                setTimeout(() => {
+                                    captureMagicSnapshot();
+                                }, 150);
+                            }
                         };
 
-                        // 3. 啟動每影格自動校正方向 (auto-upright)
+                        // 3. 啟動方向即時校正 (auto-upright)
                         characterRig.setAttribute('auto-upright', 'enabled', true);
 
                         const targetObj = xTarget.object3D;
@@ -416,7 +413,7 @@
                         characterRig.setAttribute('position', `${startX} ${startY} ${currentConfig.startPos.z}`);
                         characterRig.setAttribute('scale', currentConfig.startScale);
 
-                        // 4. 平滑移動到牌心
+                        // 4. 平滑移動至牌心
                         characterRig.removeAttribute('animation__move');
                         characterRig.removeAttribute('animation__scale');
                         characterRig.setAttribute('animation__move', {
@@ -432,7 +429,7 @@
                             easing: 'easeOutQuad'
                         });
 
-                        // 5. 播放選取的火柴人影片
+                        // 5. 顯示並播放選中的火柴人影片
                         stickmanPlane.setAttribute('material', 'src', '#' + currentConfig.id);
                         stickmanPlane.setAttribute('visible', 'true');
                         activeVideo.currentTime = 0;
